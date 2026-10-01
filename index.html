@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
   <meta name="apple-mobile-web-app-title" content="Mizmo Go!"/>
   <title>Mizmo Go!</title>
-  <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { font-family: Georgia, serif; background: #F6F3EE; }</style>
+  <style>* { box-sizing: border-box; margin: 0; padding: 0; } html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; } body { font-family: Georgia, serif; background: #F6F3EE; }</style>
 </head>
 <body>
   <div id="root"></div>
@@ -37,7 +37,7 @@ const tomorrowDS=()=>{const d=new Date();d.setDate(d.getDate()+1);return toDS(d.
 const todayDS=()=>{const n=new Date();return toDS(n.getFullYear(),n.getMonth(),n.getDate());};
 
 function fmtDueDate(ds){if(!ds)return null;const[,m,d]=ds.split("-");return`${MONTHS_SHORT[parseInt(m)-1]} ${parseInt(d)}`;}
-function DueBadge({dueDate,calculatedDate}){
+function DueBadge({dueDate,calculatedDate,sched}){
   if(!dueDate)return null;
   const today=todayDS();
   const overdue=dueDate<today,dueToday=dueDate===today;
@@ -45,10 +45,13 @@ function DueBadge({dueDate,calculatedDate}){
   if(overdue){bg="#fde8e7";color=C.pa;border=C.pa;}
   else if(dueToday){bg="#fef3e2";color=C.pb;border=C.pb;}
   else{bg=C.bg2;color=C.text3;border=C.border;}
-  return <span style={{padding:"1px 6px",fontSize:".64rem",fontWeight:600,borderRadius:10,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",flexShrink:0}}>{overdue?"⚠ ":dueToday?"● ":""}{calculatedDate?"~":""}{fmtDueDate(dueDate)}</span>;
+  return <span style={{padding:"1px 6px",fontSize:".64rem",fontWeight:600,borderRadius:10,background:bg,color,border:`1px solid ${border}`,whiteSpace:"nowrap",flexShrink:0}}>{overdue?"⚠ ":dueToday?"● ":""}{sched?"📅 ":""}{calculatedDate?"~":""}{fmtDueDate(dueDate)}</span>;
 }
 
 const STALE_DAYS={A:7,B:10};
+// Scheduled tasks (When = Scheduled) use schedDate; everything else uses dueDate
+const schedOf=t=>t.priority==="S"&&t.schedDate?t.schedDate:null;
+const effDate=t=>{const a=t.dueDate||null,b=schedOf(t);if(a&&b)return a<b?a:b;return a||b;};
 function isStale(task){
   if(task.doneDate||task.waiting||task.inProgress)return false;
   if(!STALE_DAYS[task.priority])return false;
@@ -82,14 +85,13 @@ const btn=(v="ghost",x={})=>({
   ...x,
 });
 
-const SEED={moodData:{"2026-05-18":{mood:"good",words:["Accomplished"],notes:"Dealt with the yard after the windstorm. Looked like fall in my yard. Cleaned pool, blew leaves, mowed lawn. Did some work on this app, which needs a name. Perhaps Mizmo's World?  (Mizmo is a nickname.)"},"2026-05-19":{mood:"okay",words:["Energised"],notes:"Started good, but groggy in the afternoon\n"},"2026-05-20":{mood:"hard",words:["Tired","Unmotivated"],notes:"Having trouble adjusting to thyroid meds.  Groggy, weight gain, swollen ankles and feet. Slept 3hrs this afternoon. "},"2026-05-21":{mood:"okay",words:[],notes:"Apprehensive. "},"2026-05-22":{mood:"good",words:["Accomplished"]},"2026-05-23":{mood:"okay",words:["Frustrated"]},"2026-05-24":{mood:"good",words:[]},"2026-05-26":{mood:"okay",words:[]}},actData:{"2026-05-18":{phys:"okay",task:"done",words:[],notes:"Yardwork"},"2026-05-19":{phys:"okay",task:"done",words:["Stretched"],notes:"Arm and sciatica "},"2026-05-20":{phys:"skip",task:"partial",words:[],notes:""},"2026-05-21":{phys:"skip"},"2026-05-22":{phys:"skip"},"2026-05-23":{phys:"okay"},"2026-05-24":{phys:"okay"},"2026-05-26":{phys:"skip"}},tasks:[{id:"ukop70i",title:"Secure materials",notes:"Consult with Edd",priority:"A",projectId:"qp5s6mk",addedDate:"2026-05-18",doneDate:null},{id:"chrfb76",title:"Debris",notes:"Discuss with Jordan. Use his truck or get dumpster?",priority:"B",projectId:"qp5s6mk",addedDate:"2026-05-18",doneDate:null},{id:"vkiigwq",title:"Doorknobs for buffet",notes:"",priority:"B",projectId:"misc",addedDate:"2026-05-18",doneDate:"2026-05-19"},{id:"3jj0546",title:"Finish book",notes:"Loan ends in a week.",priority:"A",projectId:"misc",addedDate:"2026-05-19",doneDate:null,today:true},{id:"wns8rkg",title:"Return Amazon",notes:"",priority:"A",projectId:"misc",addedDate:"2026-05-19",doneDate:"trivial",trivial:true},{id:"wlygx6o",title:"Coordinate labor",notes:"",priority:"B",projectId:"qp5s6mk",addedDate:"2026-05-19",doneDate:null},{id:"spuzum9",title:"Research Airbnb",notes:"Mendacino.",priority:"B",projectId:"misc",addedDate:"2026-05-19",doneDate:null},{id:"xzxgq37",title:"Paint Hearth and back of kitchen island",notes:"",priority:"B",projectId:"misc",addedDate:"2026-05-19",doneDate:null},{id:"60gki6j",title:"Paint door for test",notes:"",priority:"A",projectId:"uk4ed2x",addedDate:"2026-05-19",doneDate:"2026-05-22"},{id:"u09a2aj",title:"fu Imperial Health,",priority:"A",projectId:"misc",addedDate:"2026-05-20",doneDate:null,notes:"",waiting:true,waitingOn:"Callback from Lucent."},{id:"we3m2ns",title:"solar app",priority:"A",projectId:"misc",addedDate:"2026-05-20",doneDate:null,notes:"Forward Chat convo.",waitingOn:"Michael / Underline to get contact Enphase.",inProgress:true,today:true},{id:"vcrfro7",title:"Labwork",notes:"Next dr appt is June 2.",priority:"B",projectId:"misc",addedDate:"2026-05-20",doneDate:null,dueDate:"2026-05-26"},{id:"4sd9ubw",title:"Taylor Donations",notes:"",priority:"B",projectId:"misc",addedDate:"2026-05-20",doneDate:null},{id:"ckt5qr8",title:"Equipment",notes:"Identify and source.",priority:"B",projectId:"qp5s6mk",addedDate:"2026-05-20",doneDate:null},{id:"byjmwos",title:"Eliminate unused things",notes:"",priority:"B",projectId:"6kj6i3l",addedDate:"2026-05-20",doneDate:null},{id:"xnsqmtp",title:"Buy reading chair",notes:"",priority:"B",projectId:"6kj6i3l",addedDate:"2026-05-20",doneDate:null},{id:"mmm12fp",title:"Open wall",notes:"",priority:"B",projectId:"6kj6i3l",addedDate:"2026-05-20",doneDate:null},{id:"mhw2npu",title:"Paint",notes:"",priority:"B",projectId:"6kj6i3l",addedDate:"2026-05-20",doneDate:null},{id:"77o3ilk",title:"Spray for spiders",notes:"",priority:"B",projectId:"misc",addedDate:"2026-05-21",doneDate:null},{id:"4gd5oj4",title:"Continue testing & revisions",notes:"",priority:"A",projectId:"8441g26",addedDate:"2026-05-21",doneDate:null,progressLog:[{date:"2026-05-21",note:"Lots of iterations!"},{date:"2026-05-22",note:"More testing and iterations. It's coming along!"},{date:"2026-05-23",note:"Lots!"}],today:true},{id:"urgnsk0",title:"ASH",notes:"",priority:"B",projectId:"misc",addedDate:"2026-05-21",doneDate:null},{id:"zm0fbyt",title:"Install cabinet doorknobs",notes:"",priority:"A",projectId:"misc",addedDate:"2026-05-21",doneDate:null},{id:"igtvyfk",title:"Some form of movement",notes:"",priority:"A",projectId:"misc",addedDate:"2026-05-21",doneDate:"2026-05-23"},{id:"ots3dbd",title:"Varnish the island",notes:"",priority:"B",projectId:"uk4ed2x",waiting:true,waitingOn:"3 days for paint to completely dry.",addedDate:"2026-05-22",doneDate:null,dueDate:"2026-05-26",today:true},{id:"dv2i2vo",title:"Sand and paint base",notes:"",priority:"A",projectId:"uk4ed2x",addedDate:"2026-05-22",doneDate:"2026-05-24"},{id:"w3puxsb",title:"Put on hardware",notes:"",priority:"B",projectId:"uk4ed2x",waiting:true,waitingOn:"Last task, after varnish",addedDate:"2026-05-22",doneDate:null},{id:"smymb3m",title:"Sand and paint drawers",notes:"",priority:"A",projectId:"uk4ed2x",addedDate:"2026-05-22",doneDate:"2026-05-22"},{id:"8kitbws",title:"Novato Library Card",notes:"",priority:"B",projectId:"misc",dueDate:"2026-05-27",addedDate:"2026-05-23",doneDate:null,today:true},{id:"78zrg36",title:"Extract from claude.ai into standalone HTML/JS file",notes:"",priority:"B",projectId:"8441g26",addedDate:"2026-05-23",doneDate:null},{id:"xrjatgk",title:"Sign up at console.anthropic.com for API key",notes:"",priority:"B",projectId:"8441g26",addedDate:"2026-05-23",doneDate:null},{id:"x8wafu9",title:"Add PWA manifest (app name, icon, full screen)",notes:"",priority:"B",projectId:"8441g26",addedDate:"2026-05-23",doneDate:null},{id:"7vunzqk",title:"Host on Netlify or GitHub Pages",notes:"",priority:"B",projectId:"8441g26",addedDate:"2026-05-23",doneDate:null},{id:"utvcr8z",title:"Add to Home Screen on iPhone, iPad, Mac",notes:"",priority:"B",projectId:"8441g26",addedDate:"2026-05-23",doneDate:null},{id:"hggkg2u",title:"Test runs independently in Safari",notes:"",priority:"A",projectId:"8441g26",addedDate:"2026-05-23",doneDate:null},{id:"499t067",title:"Cross-device data sync",notes:"",priority:"B",projectId:"8441g26",addedDate:"2026-05-23",doneDate:null},{id:"477awzu",title:"Look for Claude convo re wine app",notes:"",priority:"A",projectId:"misc",addedDate:"2026-05-23",doneDate:"2026-05-23"},{id:"f765f34",title:"Chyro",notes:"",priority:"A",projectId:"misc",dueDate:"2026-05-27",addedDate:"2026-05-23",doneDate:null,today:true},{id:"nkr646d",title:"Exercise",notes:"",priority:"A",projectId:"misc",addedDate:"2026-05-24",doneDate:null},{id:"boquqo9",title:"Watch Claude Beginner Videos",notes:"There are also Reddit groups.",priority:"A",projectId:"8441g26",addedDate:"2026-05-24",doneDate:null},{id:"2r2ncep",title:"Paint the base cabinet",notes:"",priority:"A",projectId:"uk4ed2x",addedDate:"2026-05-26",doneDate:null},{id:"90lx4ky",title:"Pool",notes:"",priority:"B",projectId:"misc",dueDate:"2026-06-01",recur:"weekly",addedDate:"2026-05-26",doneDate:"2026-05-26"},{id:"ydm4ihs",title:"Pool",notes:"",priority:"B",projectId:"misc",dueDate:"2026-06-02",recur:"weekly",addedDate:"2026-05-26",doneDate:null},
-{id:"test001",title:"Call contractor",notes:"Get estimate for deck repair",priority:"A",projectId:"housemnt",dueDate:"2026-06-17",addedDate:"2026-06-15",doneDate:null},
-{id:"test002",title:"Order supplies",notes:"",priority:"A",projectId:"housemnt",dueDate:"2026-06-20",addedDate:"2026-06-15",doneDate:null},
-{id:"test003",title:"Schedule inspection",notes:"",priority:"A",projectId:"housemnt",addedDate:"2026-06-15",doneDate:null},
-{id:"test004",title:"PT exercises",notes:"Daily stretches for sciatica",priority:"A",projectId:"misc",recur:"2days",addedDate:"2026-06-15",dueDate:"2026-06-15",doneDate:null,today:true},
-{id:"test005",title:"Research solar panels",notes:"Get 3 quotes",priority:"A",projectId:"misc",inProgress:true,today:true,addedDate:"2026-06-10",doneDate:null},
-{id:"test006",title:"Follow up with HOA",notes:"",priority:"A",projectId:"misc",waiting:true,waitingOn:"HOA board meeting",dueDate:"2026-06-17",onDeck:true,addedDate:"2026-06-10",doneDate:null}
-],projects:[{id:"misc",name:"Misc Tasks"},{id:"uk4ed2x",name:"Refinish Island"},{id:"8441g26",name:"Mizmo Go!"},{id:"qp5s6mk",name:"Fence"},{id:"6kj6i3l",name:"Office conversion to den"},{"id":"housemnt","name":"House Maintenance","parked":false}],moodWords:["Happy","Calm","Grateful","Accomplished","Energised","Anxious","Frustrated","Tired","Unmotivated","Peaceful"],actWords:["Walked","Stretched","Yoga","Weights","Bike","Swim","Rest Day","Deep Work","Creative","Admin","Social"],coachLogs:{"2026-05-26":[{type:"evening",messages:[{role:"user",content:"Dentist pt in a crown today.  It was like full-on construction in my mouth.  I hate dental work.  It's so invasive.  Pretty much took me down for the day, accomplishments-wise. I tried to work with Claude, but timed out almost immediately.  But I did do my nails — they've healed enough, I think, for my acrylic tips."},{role:"assistant",content:"Oof, a crown prep is no joke — that's genuinely exhausting, both physically and mentally, and it makes complete sense that it took the wind out of your sails for the day. And hey, getting your nails done after that? That's actually a real act of self-care, not nothing. Your mood holding at \"okay\" after mouth construction sounds about right. One gentle thought: your body spent a lot of energy today just getting through something hard — tomorrow's a clean slate with no dental trauma on the schedule."},{role:"user",content:"Yes.  And I'm off to pool league tonight."},{role:"assistant",content:"Good timing — some friendly competition is exactly the right kind of reset after a rough day. Go knock some balls around!"},{role:"user",content:"Not my brother.  I'm on a league — I play 8 ball on Tues and 9 ball on Thurs."},{role:"assistant",content:"Ha, my bad! Pool league sounds like a great way to end the day."}],savedAt:"2026-05-27T00:26:30.908Z",mood:"okay",words:[],phys:"skip"}]}};
+// Sample data — only loads in a brand-new browser with no saved data. Generic on purpose (this file is public).
+const SEED={moodData:{},actData:{},tasks:[
+{id:"smp0001",title:"Welcome! Tap a task title to edit it",notes:"This is sample data. Delete these whenever you like.",priority:"A",projectId:"misc",addedDate:"2026-01-01",doneDate:null,today:true},
+{id:"smp0002",title:"Water the plants",notes:"",priority:"A",projectId:"misc",addedDate:"2026-01-01",doneDate:null,dueDate:"2026-01-05",recur:"custom:1:weeks"},
+{id:"smp0003",title:"Get three quotes",notes:"",priority:"A",projectId:"smpproj",addedDate:"2026-01-01",doneDate:null},
+{id:"smp0004",title:"Choose paint colors",notes:"",priority:"B",projectId:"smpproj",addedDate:"2026-01-01",doneDate:null}
+],projects:[{id:"misc",name:"Misc Tasks"},{id:"smpproj",name:"Sample Project"}],moodWords:["Happy","Calm","Grateful","Accomplished","Energised","Anxious","Frustrated","Tired","Unmotivated","Peaceful"],actWords:["Walked","Stretched","Yoga","Weights","Bike","Swim","Rest Day","Deep Work","Creative","Admin","Social"],coachLogs:{}};
 
 
 const _storage = {
@@ -106,32 +108,47 @@ async function storageSet(key,val){try{await window.storage.set(key,JSON.stringi
 function getApiKey(){return localStorage.getItem("mizmo_api_key")||"";}
 function setApiKey(key){localStorage.setItem("mizmo_api_key",key);}
 
-const COACH_SYS=`You are a warm, practical wellness coach inside Mizmo Go! Your user is Mizmo — 65, retired, Napa CA. Project-oriented brain; thrives on deadlines; procrastinates mundane tasks. Keep responses conversational, 2-5 sentences. Ask ONE question at a time when exploring procrastination.
+const COACH_SYS=`You are a warm, practical wellness coach inside Mizmo Go!, a personal task and wellness app. Keep responses conversational, 2-5 sentences. Ask ONE question at a time when exploring procrastination.
 
-Key facts: thyroid med adjustment (fatigue, swollen ankles); sciatica both legs, chiro scheduled, PT stretches; morning trap = sitting with phone; motivated by real external deadlines not fake ones; fence project has hard deadlines; building this app (Mizmo Go!); plays pool league (8-ball Tues, 9-ball Thurs); has a dog.
+Use the "About the user" section (if provided) for who they are. You have persistent memory provided to you in context. When the user says "save that", "remember that", "save it", "remind me", or similar — acknowledge that it has been saved. When they say "forget that" acknowledge the removal. When they ask "what do you remember" or "what have you saved" — list ONLY the memories explicitly provided to you in the context under "Memories about the user". Do NOT invent or include anything from the conversation that is not in that saved list. You receive recent conversation history and memories in context — use them naturally without narrating that you're doing so. Notice patterns in when tasks get done (morning/afternoon/evening) and gently surface insights about procrastination when relevant.
 
-You have persistent memory provided to you in context. When Maureen says "save that", "remember that", "save it", "remind me", or similar — acknowledge that it has been saved. When she says "forget that" acknowledge the removal. When she asks "what do you remember" or "what have you saved" — list ONLY the memories explicitly provided to you in the context under "Memories about Maureen". Do NOT invent or include anything from the conversation that is not in that saved list. You receive recent conversation history and memories in context — use them naturally without narrating that you're doing so. Notice patterns in when tasks get done (morning/afternoon/evening) and gently surface insights about procrastination when relevant.`
+Always use the current date and time given below — never guess the date.
 
-function nextDueDate(recur){
-  const d=new Date();
-  if(!recur)return toDS(d.getFullYear(),d.getMonth(),d.getDate());
-  if(recur.startsWith("custom:")){
-    const[,n,unit]=recur.split(":");
-    if(unit==="manual")return toDS(d.getFullYear(),d.getMonth(),d.getDate()); // user sets manually
-    const num=parseInt(n)||1;
-    if(unit==="days")d.setDate(d.getDate()+num);
-    else if(unit==="weeks")d.setDate(d.getDate()+num*7);
-    else if(unit==="months")d.setMonth(d.getMonth()+num);
-    else if(unit==="years")d.setFullYear(d.getFullYear()+num);
-  } else if(recur==="daily")d.setDate(d.getDate()+1);
-  else if(recur==="weekly")d.setDate(d.getDate()+7);
-  else if(recur==="biweekly")d.setDate(d.getDate()+14);
-  else if(recur==="monthly")d.setMonth(d.getMonth()+1);
-  return toDS(d.getFullYear(),d.getMonth(),d.getDate());
+TASKS: You cannot create tasks yourself. When you suggest a specific, concrete task the user could add, put it on its own line at the very end of your reply in exactly this form: [[TASK: short task title]] (one line per task, max 3). The app shows a button so the user can add it with one tap. Never say you have added or created a task. The user can also add tasks themselves by typing # before a task in their message (e.g. "#Call the plumber").`
+
+// ---- Recurring helpers ----
+const isManualRecur=r=>!!r&&r.startsWith("custom:")&&r.split(":")[2]==="manual";
+// Add one repeat interval to a date string (YYYY-MM-DD). Month/year steps clamp to month end (Jan 31 + 1 month = Feb 28).
+function addInterval(ds,recur){
+  const[y,m,d]=ds.split("-").map(Number);let num=1,unit="days";
+  if(recur&&recur.startsWith("custom:")){const[,n,u]=recur.split(":");num=parseInt(n)||1;unit=u||"days";}
+  else if(recur==="daily"){num=1;unit="days";}else if(recur==="weekly"){num=7;unit="days";}else if(recur==="biweekly"){num=14;unit="days";}else if(recur==="monthly"){num=1;unit="months";}
+  else if(recur&&/^\d+days$/.test(recur)){num=parseInt(recur);unit="days";}
+  if(unit==="weeks"){num*=7;unit="days";}
+  if(unit==="days"){const dt=new Date(y,m-1,d+num);return toDS(dt.getFullYear(),dt.getMonth(),dt.getDate());}
+  const months=unit==="years"?num*12:num;const tot=(m-1)+months;const ny=y+Math.floor(tot/12),nm=tot%12;const dim=new Date(ny,nm+1,0).getDate();return toDS(ny,nm,Math.min(d,dim));
 }
+// Flexible: next date counts from today (when you actually did it)
+function nextDueDate(recur){return addInterval(todayDS(),recur);}
+// Fixed: stay on the calendar rhythm — step from the scheduled date until past today
+function nextFixedDate(dueDate,recur){const today=todayDS();let n=addInterval(dueDate||today,recur);let g=0;while(n<=today&&g++<1000)n=addInterval(n,recur);return n;}
+// Build the next copy of a recurring task after it's completed (null if not recurring)
+function spawnNext(orig){
+  if(!orig||!orig.recur)return null;const today=todayDS();const manual=isManualRecur(orig.recur);
+  const nd=manual?undefined:(orig.recurMode==="fixed"?nextFixedDate(orig.dueDate,orig.recur):nextDueDate(orig.recur));
+  return{...orig,id:uid(),doneDate:null,today:undefined,completedOn:undefined,completedTime:undefined,inProgress:false,waiting:false,waitingOn:undefined,progressedOn:undefined,onDeck:undefined,addedDate:today,dueDate:nd,calculatedDate:nd?true:undefined,priority:"B",lastDone:today,needsNextDate:manual?true:undefined};
+}
+// Most recent completion date for a recurring task (from the task itself or its completed copies)
+function lastDoneOf(task,tasks){let best=task.lastDone||"";for(const t of tasks){if(t.doneDate&&t.recur&&t.title===task.title&&t.projectId===task.projectId){const d=t.doneDate!=="trivial"?t.doneDate:(t.completedOn||"");if(d>best)best=d;}}return best||null;}
 
+function getAboutMe(){try{return localStorage.getItem("wh_about_me_v6")||"";}catch(e){return "";}}
+function setAboutMe(v){localStorage.setItem("wh_about_me_v6",v);}
+function nowStamp(){const n=new Date();return n.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})+", "+n.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});}
+// Coach task suggestions: pull out [[TASK: ...]] lines so they show as buttons instead of text
+function splitCoachTasks(text){const tasks=[];const clean=(text||"").replace(/\[\[TASK:\s*([^\]]+?)\s*\]\]/gi,(m,t)=>{tasks.push(t.trim());return "";}).replace(/\n{3,}/g,"\n\n").trim();return{clean,tasks};}
 async function askCoach(messages,ctx=""){
-  const sys=COACH_SYS+(ctx?"\n\nUser data:\n"+ctx:"");
+  const about=getAboutMe().trim();
+  const sys=COACH_SYS+"\n\nCurrent date and time: "+nowStamp()+"."+(about?"\n\nAbout the user:\n"+about:"")+(ctx?"\n\nUser data:\n"+ctx:"");
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),30000);
   let res;
@@ -151,6 +168,15 @@ async function loadCoachMemory(){try{const r=await window.storage.get("coach_mem
 async function saveCoachMemory(mem){try{await window.storage.set("coach_memory",JSON.stringify(mem));}catch(e){}}
 function extractHashTasks(text){const parts=text.split("#");const tasks=[];for(let i=1;i<parts.length;i++){const t=parts[i].split("\n")[0].trim();if(t)tasks.push(t);}return tasks;}
 
+function CoachTaskButtons({content,tasks,setTasks}){
+  const [added,setAdded]=useState([]);
+  const sug=splitCoachTasks(content).tasks;
+  if(!sug.length||!setTasks)return null;
+  const exists=t=>added.includes(t)||(tasks||[]).some(x=>!x.doneDate&&(x.title||"").trim().toLowerCase()===t.toLowerCase());
+  return(<div style={{display:"flex",flexDirection:"column",gap:4,marginTop:8}}>{sug.map(t=>exists(t)
+    ?<div key={t} style={{fontSize:".74rem",color:"#2d6b2d",fontStyle:"italic"}}>✓ On your list: {t}</div>
+    :<button key={t} onClick={()=>{setTasks(prev=>[...prev,{id:uid(),title:t,priority:"A",projectId:"misc",addedDate:todayDS(),doneDate:null,today:true}]);setAdded(a=>[...a,t]);}} style={{textAlign:"left",padding:"4px 10px",borderRadius:8,border:"1px solid #B8941F",background:"#FEF3C7",color:"#6b4c0a",fontSize:".76rem",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>＋ Add to Today: {t}</button>)}</div>);
+}
 function Confirm({title,body,onOk,onCancel,okLabel="Delete",okColor=C.pa}){return(<div style={S.overlay} onClick={onCancel}><div style={{...S.modal,maxWidth:340}} onClick={e=>e.stopPropagation()}><div style={{fontFamily:"Georgia,serif",fontSize:"1.05rem",fontWeight:600,marginBottom:10}}>{title}</div><p style={{fontSize:".87rem",color:C.text2,marginBottom:16}}>{body}</p><div style={{display:"flex",justifyContent:"flex-end",gap:8}}><button style={btn("ghost")} onClick={onCancel}>Cancel</button><button style={btn("primary",{background:okColor})} onClick={onOk}>{okLabel}</button></div></div></div>);}
 function FormRow({label,children}){return <div style={{marginBottom:12}}>{label&&<label style={{display:"block",fontSize:".82rem",fontWeight:600,color:C.text2,marginBottom:4}}>{label}</label>}{children}</div>;}
 function MoodOpt({emoji,label,selected,bg,border,color,onClick}){return <div onClick={onClick} style={{flex:1,minWidth:70,padding:"8px 4px",border:`2px solid ${selected?border:C.border}`,borderRadius:8,textAlign:"center",cursor:"pointer",fontSize:".82rem",fontWeight:500,background:selected?bg:"transparent",color:selected?color:C.text2,transition:"all .15s",userSelect:"none"}}>{emoji} {label}</div>;}
@@ -206,7 +232,7 @@ function MoodCalendar({moodData,tasks,coachLogs,onDayClick}){
   </div>);
 }
 
-function CoachLogAddon({log,dateKey,onSaveLog,customLabel,setTasks}){
+function CoachLogAddon({log,dateKey,onSaveLog,customLabel,setTasks,tasks}){
   const [open,setOpen]=useState(false);const [msgs,setMsgs]=useState(log.messages);const [reply,setReply]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const msgsRef=useRef(null);
   useEffect(()=>{if(msgsRef.current)msgsRef.current.scrollTop=msgsRef.current.scrollHeight;},[msgs,loading]);
   const send=async()=>{
@@ -226,7 +252,7 @@ function CoachLogAddon({log,dateKey,onSaveLog,customLabel,setTasks}){
     <div style={{padding:"8px 14px 8px 14px",background:C.bg}}>
       <div ref={msgsRef} style={{display:"flex",flexDirection:"column",gap:6,marginBottom:8,maxHeight:220,overflowY:"auto",padding:"2px 4px 2px 8px"}}>
         {msgs.filter(m=>m.content!=="__pending__").map((m,mi)=>(
-          <div key={mi} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",width:"100%"}}><div style={{maxWidth:"88%",padding:"6px 10px",fontSize:".8rem",lineHeight:1.5,wordBreak:"break-word",borderRadius:m.role==="user"?"8px 8px 2px 8px":"8px 8px 8px 2px",background:m.role==="user"?C.accent:C.card,color:m.role==="user"?"#fff":C.text,border:m.role==="user"?"none":`1px solid ${C.border}`,whiteSpace:"pre-wrap"}}>{m.content}</div></div>
+          <div key={mi} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",width:"100%"}}><div style={{maxWidth:"88%",padding:"6px 10px",fontSize:".8rem",lineHeight:1.5,wordBreak:"break-word",borderRadius:m.role==="user"?"8px 8px 2px 8px":"8px 8px 8px 2px",background:m.role==="user"?C.accent:C.card,color:m.role==="user"?"#fff":C.text,border:m.role==="user"?"none":`1px solid ${C.border}`,whiteSpace:"pre-wrap"}}>{m.role==="assistant"?splitCoachTasks(m.content).clean:m.content}{m.role==="assistant"&&<CoachTaskButtons content={m.content} tasks={tasks} setTasks={setTasks}/>}</div></div>
         ))}
         {loading&&<div style={{alignSelf:"flex-start",padding:"6px 10px",borderRadius:"8px 8px 8px 2px",background:C.card,border:`1px solid ${C.border}`,fontSize:".8rem",color:C.text3,fontStyle:"italic"}}>Thinking…</div>}
       </div>
@@ -250,7 +276,7 @@ function MoodModal({dateKey,moodData,moodWords,tasks,coachLogs,onSave,onClose,on
     <FormRow label="Words that fit"><ChipsEditor wordList={moodWords} selected={words} onChange={setWords} onAddWord={()=>onAddWord("mood",words,setWords)}/></FormRow>
     <FormRow label="Notes"><textarea style={S.textarea} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything on your mind…"/></FormRow>
     {completed.length>0&&<div style={{marginTop:8}}><span style={S.secLbl}>Completed this day</span><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{completed.map(t=><span key={t.id} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",background:C.bg2,borderRadius:10,fontSize:".74rem",border:`1px solid ${C.border}`,color:C.text2}}>✓ {t.title}<button onClick={()=>onReopenTask&&onReopenTask(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.text3,fontSize:".8rem",padding:0}}>↩</button></span>)}</div></div>}
-    {(coachLogs[dateKey]||[]).length>0&&<div style={{marginTop:12}}><span style={S.secLbl}>💬 Coach Conversations</span>{(coachLogs[dateKey]||[]).map((log,li)=><CoachLogAddon key={li} log={log} dateKey={dateKey} onSaveLog={onSaveLog} setTasks={setTasks}/>)}</div>}
+    {(coachLogs[dateKey]||[]).length>0&&<div style={{marginTop:12}}><span style={S.secLbl}>💬 Coach Conversations</span>{(coachLogs[dateKey]||[]).map((log,li)=><CoachLogAddon key={li} log={log} dateKey={dateKey} onSaveLog={onSaveLog} setTasks={setTasks} tasks={tasks}/>)}</div>}
     <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={onClose}>Cancel</button>
       <button style={btn("primary")} onClick={()=>{if(!mood){alert("Please choose how today felt.");return;}onSave(dateKey,{mood,words,notes});}}>Save</button>
@@ -261,14 +287,17 @@ function MoodModal({dateKey,moodData,moodWords,tasks,coachLogs,onSave,onClose,on
 function WordModal({onSave,onClose}){const [val,setVal]=useState("");return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:320}} onClick={e=>e.stopPropagation()}><div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:14}}>Add a Word</div><input style={S.input} value={val} onChange={e=>setVal(e.target.value)} placeholder="e.g. Grateful, Restless…" maxLength={30} autoFocus onKeyDown={e=>e.key==="Enter"&&val.trim()&&onSave(val.trim())}/><div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}><button style={btn("ghost")} onClick={onClose}>Cancel</button><button style={btn("primary")} onClick={()=>val.trim()&&onSave(val.trim())}>Add</button></div></div></div>);}
 
 function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,onDelete}){
-  const [title,setTitle]=useState(task?.title||"");const [notes,setNotes]=useState(task?.notes||"");const [pri,setPri]=useState(task?.priority||"B");const [projId,setProjId]=useState(task?.projectId||defaultProjectId||"misc");
+  const [title,setTitle]=useState(task?.title||"");const [notes,setNotes]=useState(task?.notes||"");const [pri,setPri]=useState(task?.priority||"A");const [schedDate,setSchedDate]=useState(task?.schedDate||"");const [projId,setProjId]=useState(task?.projectId||defaultProjectId||"misc");
   const [waiting,setWaiting]=useState(!!task?.waiting);const [waitingOn,setWaitingOn]=useState(task?.waitingOn||"");
-  const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [markComplete,setMarkComplete]=useState(false);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const progressLog=task?.progressLog||[];
+  const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [markComplete,setMarkComplete]=useState(false);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const [recurMode,setRecurMode]=useState(task?.recurMode||"flex");const progressLog=task?.progressLog||[];
   return(<div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:16}}>{task?"Edit Task":"Add Task"}</div>
     <FormRow label="Task Title"><input style={S.input} value={title} onChange={e=>setTitle(e.target.value)} placeholder="What needs to be done?" autoFocus/></FormRow>
     <FormRow label="Project"><select style={S.select} value={projId} onChange={e=>setProjId(e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></FormRow>
-    <FormRow label="When"><select style={S.select} value={pri} onChange={e=>setPri(e.target.value)}><option value="A">Available</option><option value="B">Soon</option><option value="C">Someday</option></select></FormRow>
+    {recur?<FormRow label="When"><div style={{fontSize:".8rem",color:C.text3,fontStyle:"italic"}}>🔁 Recurring tasks appear On Deck automatically 3 days before their next date.</div></FormRow>
+    :<FormRow label="When"><select style={S.select} value={pri} onChange={e=>setPri(e.target.value)}><option value="A">Available</option><option value="B">Soon</option><option value="S">Scheduled</option><option value="C">Someday</option></select>
+      {pri==="S"&&<div style={{display:"flex",gap:6,alignItems:"center",marginTop:6}}><span style={{fontSize:".8rem",color:C.text2,flexShrink:0}}>📅 Do it on</span><input type="date" style={{...S.input,flex:"0 0 auto",width:150,fontSize:".84rem",padding:"6px 8px"}} value={schedDate} onChange={e=>setSchedDate(e.target.value)}/></div>}
+    </FormRow>}
     <FormRow label="Status">
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <label style={{display:"flex",alignItems:"center",gap:6,fontSize:".87rem",cursor:"pointer"}}><input type="checkbox" checked={!!waiting} onChange={e=>setWaiting(e.target.checked)} style={{width:16,height:16}}/><span>⏸️ Waiting</span></label>
@@ -280,7 +309,7 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
       {inProgress&&<textarea style={{...S.textarea,marginTop:6,fontSize:".84rem"}} value={progressNote} onChange={e=>setProgressNote(e.target.value)} placeholder={`What did you do today? (${todayDS()})`}/>}
       {markComplete&&<textarea style={{...S.textarea,marginTop:6,fontSize:".84rem"}} value={completeNote} onChange={e=>setCompleteNote(e.target.value)} placeholder="Completion notes (optional)…"/>}
     </FormRow>
-    <FormRow label="Due Date">
+    <FormRow label={recur?"Next date":"Due date (get it done by)"}>
       <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
         <input type="date" style={{...S.input,flex:"0 0 auto",width:140,fontSize:".84rem",padding:"6px 8px"}} value={dueDate} onChange={e=>setDueDate(e.target.value)}/>
         {dueDate&&<button onClick={()=>setDueDate("")} style={{padding:"4px 8px",fontSize:".8rem",background:"none",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",color:C.text3,flexShrink:0}} title="Clear due date">✕ Clear</button>}
@@ -288,6 +317,8 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
       <div style={{display:"flex",gap:4,alignItems:"center"}}>
         {recur===""?<select style={{...S.select,flex:1,fontSize:".84rem",padding:"6px 8px"}} value={recur} onChange={e=>setRecur(e.target.value)}><option value="">No repeat</option><option value="custom:1:days">Every…</option><option value="custom:0:manual">Manual date</option></select>:<div style={{display:"flex",gap:4,flex:1,alignItems:"center"}}><button onClick={()=>setRecur("")} style={{padding:"4px 8px",fontSize:".8rem",background:"none",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",color:C.text3}}>✕</button><input type="number" min="1" max="999" style={{...S.input,width:60,fontSize:".84rem",padding:"6px 8px"}} value={recur.split(":")[1]||""} onFocus={e=>e.target.select()} onChange={e=>{const parts=recur.split(":");setRecur(`custom:${e.target.value}:${parts[2]||"days"}`);}} placeholder="1"/><select style={{...S.select,flex:1,fontSize:".84rem",padding:"6px 8px"}} value={recur.split(":")[2]||"days"} onChange={e=>{const parts=recur.split(":");setRecur(`custom:${parts[1]||1}:${e.target.value}`)}}><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option><option value="years">years</option><option value="manual">manual date</option></select></div>}
       </div>
+      {recur&&!isManualRecur(recur)&&<div style={{display:"flex",gap:6,alignItems:"center",marginTop:6}}><span style={{fontSize:".8rem",color:C.text2,flexShrink:0}}>If I miss it:</span><select style={{...S.select,flex:1,fontSize:".84rem",padding:"6px 8px"}} value={recurMode} onChange={e=>setRecurMode(e.target.value)}><option value="flex">Keep it until done (flexible)</option><option value="fixed">Skip it — fixed schedule</option></select></div>}
+      {recur&&isManualRecur(recur)&&<div style={{fontSize:".74rem",color:C.text3,marginTop:4,fontStyle:"italic"}}>When you complete it, you'll be asked for the next date.</div>}
     </FormRow>
     <FormRow label="Notes"><textarea style={S.textarea} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Details, context, links…"/></FormRow>
     {progressLog.length>0&&<FormRow label="Progress Log"><div style={{maxHeight:120,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>{[...progressLog].reverse().map((entry,i)=><div key={i} style={{fontSize:".78rem",padding:"4px 8px",background:C.bg2,borderRadius:6,border:`1px solid ${C.border}`}}><span style={{color:C.text3,fontWeight:600}}>{entry.date}: </span><span style={{color:C.text2}}>{entry.note}</span></div>)}</div></FormRow>}
@@ -298,13 +329,24 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
       <button style={btn("primary")} onClick={()=>{
         if(!title.trim()){alert("Title required.");return;}
         if(waiting&&!waitingOn.trim()){alert("Please describe who or what you're waiting on.");return;}
+        if(!recur&&pri==="S"&&!schedDate){alert("Please pick the date you plan to do it.");return;}
         const newLog=[...(progressNote.trim()?[...progressLog,{date:todayDS(),note:progressNote.trim()}]:progressLog),...(completeNote.trim()?[{date:todayDS(),note:"[Complete] "+completeNote.trim()}]:[])];
         const doneVal=markComplete?(trivial?"trivial":todayDS()):undefined;
-        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=dueDate?(dueDate<=ds3?"A":"B"):pri;onSave({title:title.trim(),notes:notes.trim(),priority:autoPri,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:trivial||undefined,progressLog:newLog.length?newLog:undefined,dueDate:dueDate||undefined,recur:recur||undefined,doneDate:doneVal,completedOn:markComplete?todayDS():undefined,onDeck:waiting?task?.onDeck:undefined});
+        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dueDate?(dueDate<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:trivial||undefined,progressLog:newLog.length?newLog:undefined,dueDate:dueDate||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dueDate&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?todayDS():undefined,onDeck:waiting?task?.onDeck:undefined});
       }}>Save Task</button>
     </div>
   </div></div>);
 }
+
+function NextDateModal({task,onSave,onStop,onLater}){const [d,setD]=useState("");return(<div style={S.overlay} onClick={onLater}><div style={{...S.modal,maxWidth:360}} onClick={e=>e.stopPropagation()}>
+  <div style={{fontFamily:"Georgia,serif",fontSize:"1.05rem",fontWeight:600,marginBottom:4}}>🔁 {task.title}</div>
+  <div style={{fontSize:".85rem",color:C.text2,marginBottom:10}}>Done! When is the next one due?</div>
+  <input type="date" style={{...S.input,fontSize:".9rem"}} value={d} onChange={e=>setD(e.target.value)}/>
+  <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+    <button style={btn("primary",{justifyContent:"center"})} onClick={()=>{if(!d){alert("Pick a date first.");return;}onSave(task.id,d);}}>Save next date</button>
+    <button style={btn("ghost",{justifyContent:"center"})} onClick={onLater}>Decide later</button>
+    <button style={btn("ghost",{justifyContent:"center",color:C.text3})} onClick={()=>onStop(task.id)}>Stop repeating this task</button>
+  </div></div></div>);}
 
 function ProjectModal({onSave,onClose}){const [name,setName]=useState("");return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:340}} onClick={e=>e.stopPropagation()}><div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:14}}>New Project</div><input style={S.input} value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Home, Health, Book Club…" autoFocus onKeyDown={e=>e.key==="Enter"&&name.trim()&&onSave(name.trim())}/><div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}><button style={btn("ghost")} onClick={onClose}>Cancel</button><button style={btn("primary")} onClick={()=>name.trim()&&onSave(name.trim())}>Create</button></div></div></div>);}
 
@@ -324,7 +366,7 @@ function TaskRow({task,onComplete,onEdit,dragHandleProps,onSnooze,isParked}){
         {task.inProgress&&!isWaiting&&<span style={{fontSize:".8rem"}}>⏳</span>}
         {task.trivial&&<span style={{fontSize:".8rem"}} title="Trivial">🧹</span>}
         {isStale(task)&&!isParked&&<span onClick={e=>{e.stopPropagation();onSnooze&&onSnooze(task.id);}} style={{fontSize:".75rem",cursor:"pointer",userSelect:"none"}} title="Snooze for 10 days">💤</span>}
-        {task.dueDate&&<DueBadge dueDate={task.dueDate} calculatedDate={task.calculatedDate}/>}
+        {schedOf(task)&&<DueBadge dueDate={task.schedDate} sched/>}{task.dueDate&&<DueBadge dueDate={task.dueDate} calculatedDate={task.calculatedDate}/>}
       </div>
       {task.notes&&!task.waitingOn&&!task.inProgress&&<div style={{fontSize:".77rem",color:C.text3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.notes}</div>}
     </div>
@@ -334,7 +376,7 @@ function TaskRow({task,onComplete,onEdit,dragHandleProps,onSnooze,isParked}){
 function ProgressPromptModal({task,onLog,onClose}){const [note,setNote]=useState("");const [followUp,setFollowUp]=useState(task.dueDate||"");return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:380}} onClick={e=>e.stopPropagation()}><div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:6}}>🔄 {task.title}</div><textarea style={{...S.textarea,minHeight:80}} value={note} onChange={e=>setNote(e.target.value)} placeholder="What got done?" autoFocus/><div style={{marginTop:10,marginBottom:4,fontSize:".8rem",color:C.text3}}>Follow-up date (optional — adds Waiting status)</div><input type="date" style={{...S.input,width:"100%",fontSize:".84rem",padding:"6px 8px"}} value={followUp} onChange={e=>setFollowUp(e.target.value)}/><div style={{display:"flex",flexDirection:"column",gap:8,marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}><button style={btn("primary")} onClick={()=>onLog(task.id,note,false,followUp)}>Save — Keep In Progress</button><button style={btn("ghost")} onClick={()=>onLog(task.id,note,true,followUp)}>Mark Complete</button></div></div></div>);}
 
 function TodayRow({task,projects,onComplete,onEdit,onDelete,onRemoveToday,handleRef}){
-  const [hov,setHov]=useState(false);const proj=projects.find(p=>p.id===task.projectId);const priCol={A:{bg:"#fde8e7",color:C.pa},B:{bg:"#fef3e2",color:C.pb},C:{bg:"#e8f4e6",color:C.pc}};const priLabel={A:"Available",B:"Soon",C:"Someday"};const pc=priCol[task.priority]||priCol.A;
+  const [hov,setHov]=useState(false);const proj=projects.find(p=>p.id===task.projectId);const priCol={A:{bg:"#fde8e7",color:C.pa},B:{bg:"#fef3e2",color:C.pb},S:{bg:"#e3edf7",color:"#3a6a98"},C:{bg:"#e8f4e6",color:C.pc}};const pc=priCol[task.priority]||priCol.A;
   return(<div style={{display:"flex",alignItems:"flex-start",gap:14,padding:"5px 4px",borderRadius:6,background:hov?C.bg2:"transparent",transition:"background .12s"}} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}>
     <div ref={handleRef||null} style={{color:handleRef?"#c0b0a0":"transparent",fontSize:"1rem",flexShrink:0,cursor:handleRef?"grab":"default",userSelect:"none",WebkitUserSelect:"none",padding:"1px 4px 0 0",touchAction:"none",marginTop:1}}>⠿</div>
     <div onClick={()=>onComplete(task.id)} style={{width:18,height:18,border:`2px solid ${task.waiting?"#9b7bcc":C.accent}`,borderRadius:4,cursor:"pointer",flexShrink:0,marginTop:1,background:task.progressedOn===todayDS()?C.accent+"44":"transparent"}}/>
@@ -345,7 +387,7 @@ function TodayRow({task,projects,onComplete,onEdit,onDelete,onRemoveToday,handle
         {task.inProgress&&!task.waiting&&<span style={{fontSize:".78rem"}}>⏳</span>}
         {task.waiting&&<span style={{fontSize:".78rem"}}>⏸️</span>}
         {proj&&proj.id!=="misc"&&<span style={{padding:"1px 6px",fontSize:".66rem",background:C.bg2,color:C.text3,borderRadius:4,border:`1px solid ${C.border}`}}>{proj.name}</span>}
-        {task.dueDate&&!task.doneDate&&!task.progressedOn&&<DueBadge dueDate={task.dueDate}/>}
+        {schedOf(task)&&!task.doneDate&&!task.progressedOn&&<DueBadge dueDate={task.schedDate} sched/>}{task.dueDate&&!task.doneDate&&!task.progressedOn&&<DueBadge dueDate={task.dueDate}/>}
       </div>
       {task.notes&&<div style={{fontSize:".77rem",color:C.text3,marginTop:1}}>{task.notes}</div>}
     </div>
@@ -360,7 +402,9 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
   const containerRef=useRef(null);
   const stateRef=useRef({idx:null,ghost:null,startY:0,rowEls:[],handleEls:[],tasks:priTasks});
   stateRef.current.tasks=priTasks;
-  const pc=priCol[pri];const isSub=pri==="B"||pri==="C";
+  // Keep latest reorder function in a ref so the touch listeners don't get torn down mid-drag
+  const reorderRef=useRef(reorderTasks);reorderRef.current=reorderTasks;
+  const pc=priCol[pri];const isSub=pri==="B"||pri==="C"||pri==="S";
 
   useEffect(()=>{
     const container=containerRef.current;
@@ -399,7 +443,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
           const arr=[...r.tasks];
           const[m]=arr.splice(r.idx,1);
           arr.splice(i,0,m);
-          reorderTasks(projId,pri,arr);
+          reorderRef.current(projId,pri,arr);
           r.idx=i;
           break;
         }
@@ -430,7 +474,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
       container.removeEventListener('touchmove',handleTouchMove);
       container.removeEventListener('touchend',deactivateDrag);
     };
-  },[projId,pri,reorderTasks]);
+  },[projId,pri]);
 
   return(<div ref={containerRef} style={{marginBottom:4,opacity:isSub?.85:1,userSelect:"none",WebkitUserSelect:"none"}}>
     <div style={{display:"inline-flex",padding:"2px 8px",borderRadius:10,fontSize:".71rem",fontWeight:700,marginBottom:4,background:pc.bg,color:pc.color}}>{priLabel[pri]}</div>
@@ -448,17 +492,17 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
 }
 
 function TodoTab({tasks,projects,setTasks,setProjects}){
-  const [showTask,setShowTask]=useState(false);const [editTask,setEditTask]=useState(null);const [showProj,setShowProj]=useState(false);const [collapsed,setCollapsed]=useState({__recur__:true,__completedProjs__:true});const [confirm,setConfirm]=useState(null);const [addingTo,setAddingTo]=useState(null);const [addingToToday,setAddingToToday]=useState(false);const [progressPrompt,setProgressPrompt]=useState(null);
+  const [showTask,setShowTask]=useState(false);const [editTask,setEditTask]=useState(null);const [showProj,setShowProj]=useState(false);const [collapsed,setCollapsed]=useState({__recur__:true,__completedProjs__:true});const [confirm,setConfirm]=useState(null);const [addingTo,setAddingTo]=useState(null);const [addingToToday,setAddingToToday]=useState(false);const [progressPrompt,setProgressPrompt]=useState(null);const [nextLater,setNextLater]=useState([]);
   const active=tasks.filter(t=>!t.doneDate);
   const _todayActive=active.filter(t=>t.today).filter(t=>t.progressedOn!==todayDS()).sort(capsSort);
   const _todayProgressed=active.filter(t=>t.today&&t.progressedOn===todayDS());
   const _todayDone=tasks.filter(t=>t.completedOn===todayDS()&&t.doneDate);
   const todayTasks=[..._todayActive,..._todayProgressed,..._todayDone];
   const saveTask=data=>{const isToday=addingToToday;const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();const shouldBeToday=(()=>{if(!isToday)return false;if(data.priority==="A"&&data.projectId==="misc")return true;if(data.dueDate){const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);return data.dueDate<=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());}return false;})();setTasks(prev=>{const updated=editTask?prev.map(t=>{if(t.id!==editTask.id)return t;const hadProgress=t.progressLog?.length||0;const hasNewProgress=data.progressLog?.length>hadProgress;const setProgressed=data.inProgress&&hasNewProgress?{progressedOn:todayDS()}:{};return{...t,...data,...setProgressed,completedTime:data.doneDate?compTime:t.completedTime};}):[...prev,{id:uid(),...data,addedDate:todayDS(),doneDate:data.doneDate||null,today:shouldBeToday?true:undefined}];// If completing a recurring task, create next instance
-if(editTask&&data.doneDate&&editTask.recur){const nd=nextDueDate(editTask.recur);const next={...editTask,...data,id:uid(),doneDate:null,today:undefined,completedOn:undefined,inProgress:false,waiting:false,addedDate:todayDS(),dueDate:nd,calculatedDate:true,priority:"B"};return[...updated,next];}return updated;});setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);};
+if(editTask&&data.doneDate&&(data.recur||editTask.recur)){const next=spawnNext({...editTask,...data});if(next)return[...updated,next];}return updated;});setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);};
   const completeTask=id=>{const task=tasks.find(t=>t.id===id);if(task?.inProgress){if(task.progressedOn===todayDS()){// Toggle off — uncheck progress for today
-setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:undefined}:x));return;}setProgressPrompt(task);return;}else{setTasks(prev=>{const updated=prev.map(x=>x.id===id?{...x,doneDate:task?.trivial?"trivial":todayDS(),completedOn:todayDS(),completedTime:(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})(),today:task?.trivial?x.today:undefined}:x);const origTask=prev.find(x=>x.id===id);if(origTask?.recur){const nd=nextDueDate(origTask.recur);const next={...origTask,id:uid(),doneDate:null,today:undefined,completedOn:undefined,inProgress:false,waiting:false,addedDate:todayDS(),dueDate:nd,calculatedDate:true,priority:"B"};return[...updated,next];}return updated;});}};
-  const handleProgressLog=(id,note,complete,followUpDate)=>{const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();setTasks(prev=>prev.map(x=>{if(x.id!==id)return x;const newLog=[...(x.progressLog||[]),{date:todayDS(),note:note.trim()}];if(complete){const origTask=prev.find(t=>t.id===id);if(origTask?.recur){const nd=nextDueDate(origTask.recur);const next={...origTask,id:uid(),doneDate:null,today:undefined,completedOn:undefined,inProgress:false,waiting:false,addedDate:todayDS(),dueDate:nd,calculatedDate:true,priority:"B"};return{...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:compTime,inProgress:undefined,progressLog:newLog};}return{...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:compTime,inProgress:undefined,progressLog:newLog};}if(followUpDate){return{...x,progressLog:newLog,dueDate:followUpDate,waiting:true,today:true,progressedOn:todayDS(),onDeck:true};}return{...x,progressLog:newLog,today:true,progressedOn:todayDS()};}));setProgressPrompt(null);};
+setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:undefined}:x));return;}setProgressPrompt(task);return;}else{setTasks(prev=>{const updated=prev.map(x=>x.id===id?{...x,doneDate:task?.trivial?"trivial":todayDS(),completedOn:todayDS(),completedTime:(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})(),today:task?.trivial?x.today:undefined}:x);const origTask=prev.find(x=>x.id===id);const next=spawnNext(origTask);if(next)return[...updated,next];return updated;});}};
+  const handleProgressLog=(id,note,complete,followUpDate)=>{const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();setTasks(prev=>{let nextT=null;const upd=prev.map(x=>{if(x.id!==id)return x;const newLog=[...(x.progressLog||[]),{date:todayDS(),note:note.trim()}];if(complete){const doneX={...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:compTime,inProgress:undefined,progressLog:newLog};nextT=spawnNext({...x,progressLog:newLog});return doneX;}if(followUpDate){return{...x,progressLog:newLog,dueDate:followUpDate,waiting:true,today:true,progressedOn:todayDS(),onDeck:true};}return{...x,progressLog:newLog,today:true,progressedOn:todayDS()};});return nextT?[...upd,nextT]:upd;});setProgressPrompt(null);};
   const removeFromToday=id=>{const task=tasks.find(t=>t.id===id);if(task?.recur){setTasks(prev=>prev.map(x=>x.id===id?{...x,today:undefined,dueDate:tomorrowDS()}:x));}else{setTasks(prev=>prev.map(x=>x.id===id?{...x,today:undefined}:x));}};
   const addToToday=id=>setTasks(tasks.map(x=>x.id===id?{...x,today:true,onDeck:undefined}:x));
   const reorderWaiting=(newArr)=>{
@@ -489,7 +533,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
   const doDelete=()=>{if(!confirm)return;if(confirm.type==="task")setTasks(tasks.filter(t=>t.id!==confirm.id));else{setProjects(projects.filter(p=>p.id!==confirm.id));setTasks(tasks.filter(t=>t.projectId!==confirm.id));}setConfirm(null);};
   const addProject=name=>{setProjects([...projects,{id:uid(),name}]);setShowProj(false);};
   const moveProject=(idx,dir)=>{const next=idx+dir;if(next<0||next>=projects.length)return;const arr=[...projects];[arr[idx],arr[next]]=[arr[next],arr[idx]];setProjects(arr);};
-  const priLabel={A:"Available",B:"Soon",C:"Someday"};const priCol={A:{bg:"#fde8e7",color:C.pa},B:{bg:"#fef3e2",color:C.pb},C:{bg:"#e8f4e6",color:C.pc}};
+  const priLabel={A:"Available",B:"Soon",S:"Scheduled",C:"Someday"};const priCol={A:{bg:"#fde8e7",color:C.pa},B:{bg:"#fef3e2",color:C.pb},S:{bg:"#e3edf7",color:"#3a6a98"},C:{bg:"#e8f4e6",color:C.pc}};
   const dragRef=useRef({idx:null,projId:null,pri:null});
   const todayDragRef=useRef({idx:null});
   const recurDragRef=useRef({idx:null});
@@ -619,14 +663,18 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
         const proj=projects.find(p=>p.id===t.projectId);
         if(proj?.parked)return false;
         if(t.onDeck&&t.priority==="A")return true;
+        if(t.needsNextDate)return false;
         if(t.recur&&!t.dueDate&&!t.completedOn)return true;
-        const today=todayDS();const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);const threeDaysDS=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());if(t.priority!=="A"&&!(t.dueDate&&t.dueDate<=threeDaysDS))return false;
+        const today=todayDS();const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);const threeDaysDS=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());
+        // Any task with a due or scheduled date within 3 days (or overdue) comes On Deck, whatever its When setting
+        const ed=effDate(t);if(ed&&ed<=threeDaysDS)return true;
+        if(t.priority!=="A")return false;
         if(isAllCaps(t))return true;
         if(t.projectId==="misc")return true;
         const projATasks=active.filter(x=>x.projectId===t.projectId&&x.priority==="A"&&!x.today&&!x.waiting);
         return projATasks[0]?.id===t.id;
       });
-      const sortedOnDeck=(()=>{const base=onDeckTasks.slice().sort((a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const aHas=!!a.dueDate,bHas=!!b.dueDate;if(aHas&&!bHas)return-1;if(!aHas&&bHas)return 1;if(aHas&&bHas&&a.dueDate!==b.dueDate)return a.dueDate<b.dueDate?-1:1;return 0;});if(!onDeckOrder)return base;const ordered=onDeckOrder.map(id=>base.find(t=>t.id===id)).filter(Boolean);const rest=base.filter(t=>!onDeckOrder.includes(t.id));return[...ordered,...rest];})();
+      const sortedOnDeck=(()=>{const base=onDeckTasks.slice().sort((a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ad=effDate(a),bd=effDate(b);const aHas=!!ad,bHas=!!bd;if(aHas&&!bHas)return-1;if(!aHas&&bHas)return 1;if(aHas&&bHas&&ad!==bd)return ad<bd?-1:1;return 0;});if(!onDeckOrder)return base;const ordered=onDeckOrder.map(id=>base.find(t=>t.id===id)).filter(Boolean);const rest=base.filter(t=>!onDeckOrder.includes(t.id));return[...ordered,...rest];})();
       onDeckTouchState.current.tasks=sortedOnDeck;
       return onDeckTasks.length>0&&(
       <div style={{background:C.card,border:`1.5px solid ${C.pa}22`,borderRadius:12,marginBottom:14,overflow:"hidden"}}>
@@ -716,7 +764,9 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
               <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                 <span style={{fontSize:".83rem",cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>{setEditTask(task);setShowTask(true);}}>{task.title}</span>
                 {task.trivial&&<span style={{fontSize:".75rem"}} title="Trivial">🧹</span>}
-                <span style={{fontSize:".68rem",color:"#4a6a48",background:"#e8f0e0",borderRadius:10,padding:"1px 6px"}}>{recurLabel}</span>
+                <span style={{fontSize:".68rem",color:"#4a6a48",background:"#e8f0e0",borderRadius:10,padding:"1px 6px"}}>{recurLabel}{task.recurMode==="fixed"?" · fixed":""}</span>
+                {task.needsNextDate&&<span onClick={()=>setNextLater(l=>l.filter(x=>x!==task.id))} style={{fontSize:".66rem",color:C.pa,border:`1px solid ${C.pa}`,borderRadius:10,padding:"1px 6px",cursor:"pointer"}}>Needs next date</span>}
+                {(()=>{const ld=lastDoneOf(task,tasks);return ld?<span style={{fontSize:".66rem",color:C.text3}}>Last: {fmtDueDate(ld)}</span>:null;})()}
                 {proj&&proj.id!=="misc"&&<span style={{fontSize:".66rem",color:C.text3,background:C.bg2,borderRadius:4,padding:"1px 6px",border:`1px solid ${C.border}`}}>{proj.name}</span>}
                 {task.dueDate&&<DueBadge dueDate={task.dueDate} calculatedDate={task.calculatedDate}/>}
               </div>
@@ -745,8 +795,8 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
         {isOpen&&<div style={{padding:"4px 10px"}}>
           {pt.length===0&&!proj.completed&&<div style={{color:C.text3,fontSize:".83rem",padding:"4px 0"}}>No tasks yet.</div>}
           {proj.completed&&pt.length===0&&<div style={{color:C.text3,fontSize:".83rem",padding:"4px 0",fontStyle:"italic"}}>All tasks completed.</div>}
-          {["A","B","C"].map(pri=>{
-            const priTasks=pt.filter(t=>t.priority===pri&&!t.recur&&!t.doneDate).slice().sort((a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const aHas=!!a.dueDate,bHas=!!b.dueDate;if(aHas&&!bHas)return-1;if(!aHas&&bHas)return 1;if(aHas&&bHas&&a.dueDate!==b.dueDate)return a.dueDate<b.dueDate?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;});
+          {["A","B","S","C"].map(pri=>{
+            const priTasks=pt.filter(t=>t.priority===pri&&!t.recur&&!t.doneDate).slice().sort((a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ad=effDate(a),bd=effDate(b);const aHas=!!ad,bHas=!!bd;if(aHas&&!bHas)return-1;if(!aHas&&bHas)return 1;if(aHas&&bHas&&ad!==bd)return ad<bd?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;});
             if(!priTasks.length)return null;
             return <PriorityGroup key={pri} projId={proj.id} pri={pri} priTasks={priTasks} priLabel={priLabel} priCol={priCol} completeTask={completeTask} setEditTask={setEditTask} setShowTask={setShowTask} addToToday={addToToday} removeFromToday={removeFromToday} reorderTasks={reorderTasks} isParked={!!proj.parked} setTasks={setTasks}/>;
           })}
@@ -764,6 +814,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
               {recurProjTasks.map(t=><div key={t.id} style={{fontSize:".82rem",color:C.text2,padding:"3px 0",display:"flex",alignItems:"center",gap:6,cursor:"pointer"}} onClick={()=>{setEditTask(t);setShowTask(true);}}>
                 <span style={{textDecoration:"underline dotted",textUnderlineOffset:2}}>{t.title}</span>
                 {t.dueDate&&<DueBadge dueDate={t.dueDate} calculatedDate={t.calculatedDate}/>}
+                {(()=>{const ld=lastDoneOf(t,tasks);return ld?<span style={{fontSize:".66rem",color:C.text3}}>Last: {fmtDueDate(ld)}</span>:null;})()}
               </div>)}
             </div>}
           </div>);
@@ -816,6 +867,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
     {confirm&&<Confirm title={confirm.type==="project"?"Delete Project?":"Delete Task?"} body={`Delete "${confirm.name}"?${confirm.type==="project"?" All tasks inside will also be deleted.":""}`} onOk={doDelete} onCancel={()=>setConfirm(null)}/>}
     {showTask&&<TaskModal task={editTask} projects={projects} defaultProjectId={addingTo||"misc"} onSave={saveTask} onClose={()=>{setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);}} onRemoveToday={id=>{removeFromToday(id);setShowTask(false);setEditTask(null);}} onDelete={id=>{setTasks(prev=>prev.filter(t=>t.id!==id));setShowTask(false);setEditTask(null);}}/>}
     {showProj&&<ProjectModal onSave={addProject} onClose={()=>setShowProj(false)}/>}
+    {(()=>{const nt=tasks.find(t=>t.needsNextDate&&!t.doneDate&&!nextLater.includes(t.id));if(!nt||showTask||progressPrompt)return null;return <NextDateModal key={nt.id} task={nt} onLater={()=>setNextLater(l=>[...l,nt.id])} onStop={id=>setTasks(prev=>prev.filter(x=>x.id!==id))} onSave={(id,d)=>{const t3=new Date();t3.setDate(t3.getDate()+3);const ds3=toDS(t3.getFullYear(),t3.getMonth(),t3.getDate());setTasks(prev=>prev.map(x=>x.id===id?{...x,dueDate:d,calculatedDate:undefined,needsNextDate:undefined,priority:d<=ds3?"A":"B"}:x));}}/>;})()}
     {progressPrompt&&<ProgressPromptModal task={progressPrompt} onLog={handleProgressLog} onClose={()=>setProgressPrompt(null)}/>}
   </div>);
 }
@@ -840,7 +892,7 @@ function CompletedTab({tasks,projects,setTasks}){
     {done.length===0?<div style={{textAlign:"center",padding:"28px 16px",color:C.text3}}><div style={{fontSize:"2rem",marginBottom:6}}>📋</div><p style={{fontSize:".86rem"}}>No completed tasks yet.</p></div>:(
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:".83rem"}}>
         <thead><tr>{[["Task","task"],["Project","project"],["Done","date"],["",""]].map(([h,s])=><th key={h} onClick={s?()=>setSortBy(s):undefined} style={{textAlign:"left",padding:"6px 8px",borderBottom:`2px solid ${C.border}`,fontSize:".72rem",fontWeight:600,textTransform:"uppercase",color:s&&sortBy===s?C.accent:C.text3,cursor:s?"pointer":"default",userSelect:"none"}}>{h}{s&&sortBy===s?" ▾":""}</th>)}</tr></thead>
-        <tbody>{done.map(t=>{const proj=getProj(t.projectId)||{name:"Misc"};return <tr key={t.id}><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`}}><span style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>setViewTask(t)}>{t.title}</span></td><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,color:C.text3,fontSize:".78rem"}}>{proj.name}</td><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",color:C.text3}}>{fmtDate(t.doneDate)}</td><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",color:C.text3,fontSize:".75rem"}}>{t.completedOn?fmtDate(t.completedOn):"—"}</td><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`}}><div style={{display:"flex",gap:4}}>{!t.trivial&&<button style={{...S.btnIcon,fontSize:".75rem"}} onClick={()=>setTasks(prev=>prev.map(x=>x.id===t.id?{...x,trivial:true,doneDate:"trivial"}:x))} title="Mark trivial">🧹</button>}<button style={S.btnIcon} onClick={()=>setTasks(prev=>prev.map(x=>x.id===t.id?{...x,doneDate:null}:x))} title="Reopen">↩</button><button style={S.btnIcon} onClick={()=>{setLastDeleted(t);setTasks(prev=>prev.filter(x=>x.id!==t.id));}}>🗑</button></div></td></tr>;})}</tbody>
+        <tbody>{done.map(t=>{const proj=getProj(t.projectId)||{name:"Misc"};return <tr key={t.id}><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`}}><span style={{cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>setViewTask(t)}>{t.title}</span></td><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,color:C.text3,fontSize:".78rem"}}>{proj.name}</td><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",color:C.text3}}>{fmtDate(t.doneDate)}</td><td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`}}><div style={{display:"flex",gap:4}}>{!t.trivial&&<button style={{...S.btnIcon,fontSize:".75rem"}} onClick={()=>setTasks(prev=>prev.map(x=>x.id===t.id?{...x,trivial:true,doneDate:"trivial"}:x))} title="Mark trivial">🧹</button>}<button style={S.btnIcon} onClick={()=>setTasks(prev=>prev.map(x=>x.id===t.id?{...x,doneDate:null}:x))} title="Reopen">↩</button><button style={S.btnIcon} onClick={()=>{setLastDeleted(t);setTasks(prev=>prev.filter(x=>x.id!==t.id));}}>🗑</button></div></td></tr>;})}</tbody>
       </table>
     )}
     {editReopenTask&&<TaskModal task={editReopenTask} projects={projects} defaultProjectId={editReopenTask.projectId||"misc"} onSave={data=>{setTasks(prev=>prev.map(t=>t.id===editReopenTask.id?{...t,...data}:t));setEditReopenTask(null);}} onClose={()=>setEditReopenTask(null)} onDelete={id=>{setTasks(prev=>prev.filter(t=>t.id!==id));setEditReopenTask(null);}}/>}
@@ -868,14 +920,14 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
     // Mood/activity last 5 days
     const recent=[];for(let i=0;i<5;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood,phys:actData[k]?.phys});}
     // Active tasks
-    const ts=tasks.filter(t=>!t.doneDate).slice(0,12).map(t=>`[${t.priority}${t.today?"★":""}${t.inProgress?"⏳":""}${t.waiting?"⏸️":""}] ${t.title}${t.dueDate?" (due:"+t.dueDate+")":""}`);
+    const ts=tasks.filter(t=>!t.doneDate).slice(0,12).map(t=>`[${t.priority}${t.today?"★":""}${t.inProgress?"⏳":""}${t.waiting?"⏸️":""}] ${t.title}${t.dueDate?" (due:"+t.dueDate+")":""}${schedOf(t)?" (scheduled:"+t.schedDate+")":""}`);
     // Recent completions last 7 days
     const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);const sevenAgoDS=toDS(sevenAgo.getFullYear(),sevenAgo.getMonth(),sevenAgo.getDate());
     const done=tasks.filter(t=>t.doneDate&&t.doneDate>=sevenAgoDS).map(t=>`${t.title} (completed:${t.completedOn||t.doneDate}${t.completedTime?" at "+t.completedTime:""})`);
     // Long-term memories
-    const mems=coachMemory?.insights?.length>0?"Memories about Maureen:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";
+    const mems=coachMemory?.insights?.length>0?"Memories about the user:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";
     // Recent chat history (last 5 days, excluding today)
-    const recentChats=Object.entries(coachLogs||{}).filter(([dk,logs])=>dk!==todayDS()&&dk>=sevenAgoDS&&logs.some(l=>l.messages?.length>0)).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,5).map(([dk,logs])=>{const chatLog=logs.find(l=>l.type==="chat")||logs[0];const msgs=(chatLog?.messages||[]).filter(m=>m.content&&m.content!=="__pending__").slice(-6).map(m=>(m.role==="user"?"Maureen":"Coach")+": "+m.content).join("\n");return msgs?("--- "+dk+" ---\n"+msgs):null;}).filter(Boolean).join("\n\n");
+    const recentChats=Object.entries(coachLogs||{}).filter(([dk,logs])=>dk!==todayDS()&&dk>=sevenAgoDS&&logs.some(l=>l.messages?.length>0)).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,5).map(([dk,logs])=>{const chatLog=logs.find(l=>l.type==="chat")||logs[0];const msgs=(chatLog?.messages||[]).filter(m=>m.content&&m.content!=="__pending__").slice(-6).map(m=>(m.role==="user"?"User":"Coach")+": "+m.content).join("\n");return msgs?("--- "+dk+" ---\n"+msgs):null;}).filter(Boolean).join("\n\n");
     let ctx="Recent mood/activity: "+JSON.stringify(recent)+".\nActive tasks: "+(ts.join(", ")||"none")+".\nCompleted last 7 days: "+(done.join(", ")||"none")+".";
     if(mems)ctx+="\n\n"+mems;
     if(recentChats)ctx+="\n\nRecent conversations:\n"+recentChats;
@@ -896,7 +948,7 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
         // Ask Coach to extract the key insight
         try{const memPrompt=`The user said "${text}" after this conversation. Extract ONE concise memory to save (max 20 words). Focus on preferences, boundaries, procrastination patterns, decisions, or things they want remembered. If it's just casual conversation not worth saving, respond with just "SKIP". Respond with only the memory text or SKIP.`;
         const memR=await askCoach([{role:"user",content:memPrompt}],buildCtx());
-        if(memR&&!memR.includes("SKIP")&&memR.trim().length>5){const newMem=memR.trim();const updated={insights:[...(coachMemory?.insights||[]),newMem],lastUpdated:todayDS()};updateCoachMemory(updated);}}catch(e){}
+        if(memR&&!memR.includes("SKIP")&&memR.trim().length>5){const newMem=splitCoachTasks(memR).clean;const updated={insights:[...(coachMemory?.insights||[]),newMem],lastUpdated:todayDS()};updateCoachMemory(updated);}}catch(e){}
       } else if(forgetTrigger){
         // Remove last memory
         if(coachMemory?.insights?.length>0){const updated={...coachMemory,insights:coachMemory.insights.slice(0,-1)};updateCoachMemory(updated);}
@@ -915,7 +967,7 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
       {isEvening&&<div style={{display:"flex",gap:6,marginBottom:8}}>{actOpts.map(o=><button key={o.v} onClick={()=>setPhys(o.v)} style={{flex:1,padding:"4px 2px",borderRadius:8,border:`2px solid ${phys===o.v?"#7a5010":C.border}`,background:phys===o.v?"#fef3e2":"rgba(255,255,255,.7)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}><span style={{fontSize:"1rem"}}>{o.em}</span>{phys===o.v&&<span style={{fontSize:".7rem",color:"#7a5010",fontWeight:600}}>{o.lb}</span>}</button>)}</div>}
       {type==="evening"&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>{(moodWords||[]).slice(0,8).map(w=><button key={w} onClick={()=>setWords(ws=>ws.includes(w)?ws.filter(x=>x!==w):[...ws,w])} style={{padding:"3px 10px",borderRadius:12,border:`1px solid ${words.includes(w)?C.accent:C.border}`,background:words.includes(w)?C.accent+"22":"rgba(255,255,255,.7)",fontSize:".76rem",cursor:"pointer",color:words.includes(w)?C.accent:C.text2}}>{w}</button>)}</div>}
       {started&&<div ref={msgsRef} style={{maxHeight:200,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,marginBottom:10,padding:"2px 4px 2px 8px"}}>
-        {chatHist.filter(m=>m.content!=="__pending__").map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",width:"100%"}}><div style={{maxWidth:"85%",padding:"8px 12px",fontSize:".85rem",lineHeight:1.52,wordBreak:"break-word",borderRadius:m.role==="user"?"10px 10px 2px 10px":"10px 10px 10px 2px",background:m.role==="user"?C.accent:"rgba(255,255,255,.85)",color:m.role==="user"?"#fff":C.text,border:m.role==="user"?"none":`1px solid ${C.border}`,whiteSpace:"pre-wrap"}}>{m.content}</div></div>)}
+        {chatHist.filter(m=>m.content!=="__pending__").map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",width:"100%"}}><div style={{maxWidth:"85%",padding:"8px 12px",fontSize:".85rem",lineHeight:1.52,wordBreak:"break-word",borderRadius:m.role==="user"?"10px 10px 2px 10px":"10px 10px 10px 2px",background:m.role==="user"?C.accent:"rgba(255,255,255,.85)",color:m.role==="user"?"#fff":C.text,border:m.role==="user"?"none":`1px solid ${C.border}`,whiteSpace:"pre-wrap"}}>{m.role==="assistant"?splitCoachTasks(m.content).clean:m.content}{m.role==="assistant"&&<CoachTaskButtons content={m.content} tasks={tasks} setTasks={setTasks}/>}</div></div>)}
         {loading&&<div style={{alignSelf:"flex-start",padding:"8px 12px",borderRadius:"10px 10px 10px 2px",background:"rgba(255,255,255,.85)",border:`1px solid ${C.border}`,fontSize:".85rem",color:C.text3,fontStyle:"italic"}}>Thinking…</div>}
       </div>}
       {error&&<div style={{fontSize:".78rem",color:C.pa,marginBottom:6}}>⚠️ {error}</div>}
@@ -973,11 +1025,12 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
   useEffect(()=>{const tl=(coachLogs[todayDS()]||[]).find(l=>l.type==="chat");if(tl)setChatHist(tl.messages);setChatLoaded(true);},[]);
   useEffect(()=>{if(chatLoaded&&chatHist.length>0&&onSaveLog)onSaveLog(todayDS(),"chat",chatHist);},[chatHist,chatLoaded]);
   useEffect(()=>{if(msgsRef.current)msgsRef.current.scrollTop=msgsRef.current.scrollHeight;},[chatHist,chatLoading]);
-  const buildCtx=useCallback(()=>{const recent=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood||null,phys:actData[k]?.phys||null});}const active=tasks.filter(t=>!t.doneDate).slice(0,6).map(t=>`[${t.priority}] ${t.title}`);const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);const sevenDS=toDS(sevenAgo.getFullYear(),sevenAgo.getMonth(),sevenAgo.getDate());const compl=tasks.filter(t=>t.doneDate&&t.doneDate!=="trivial"&&t.doneDate>=sevenDS).slice(-4).map(t=>t.title);const memStr=coachMemory.insights.length>0?"\n\nMemories about Maureen:\n"+coachMemory.insights.map((m,i)=>`${i+1}. ${m}`).join("\n"):"";const recentLogs=[];Object.entries(coachLogs||{}).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3).forEach(([dk,logs])=>{logs.forEach(log=>{if(log.messages){const notes=log.messages.filter(m=>m.role==="user"&&m.content&&m.content.length>10&&m.content!=="__pending__").map(m=>m.content).join(" / ");if(notes)recentLogs.push(`${dk}: ${notes}`);}});});const logsStr=recentLogs.length>0?"\n\nRecent check-in notes:\n"+recentLogs.join("\n"):"";return`Recent 7 days: ${JSON.stringify(recent)}. Active: ${active.join(", ")||"none"}. Completed: ${compl.join(", ")||"none"}.${logsStr}${memStr}`;},[moodData,actData,tasks,coachMemory]);
-  const loadInsight=async()=>{setInsightLoading(true);setInsight("Thinking…");setInsightError("");setInsightSecs(0);const timer=setInterval(()=>setInsightSecs(s=>s+1),1000);const ht=setTimeout(()=>{clearInterval(timer);setInsightLoading(false);setInsight("");setInsightError("Timed out — tap Refresh again.");},30000);try{const h=new Date().getHours();const tc=h<12?"morning":h<17?"midday":"evening";const memList=coachMemory?.insights?.length>0?"Known about Maureen:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";const insightPrompt=`It is ${tc}. You are Maureen's personal coach. Using everything you know about her — her recent mood, tasks, and especially these memories: ${memList||"none saved yet"} — give her ONE brief, specific, personal insight or nudge. Reference something real from her life. 2 sentences max. Do NOT ask about anything already resolved in the memories.`;const txt=await askCoach([{role:"user",content:insightPrompt}],buildCtx());if(txt&&txt.length>20){setInsight(txt);storageSet("wh_insight_today",{date:todayDS(),text:txt});}else{setInsight("");setInsightError("Empty response — tap Refresh to try again.");}}catch(e){setInsight("");setInsightError("Error: "+e.message);}clearInterval(timer);clearTimeout(ht);setInsightLoading(false);};
+  const buildCtx=useCallback(()=>{const recent=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood||null,phys:actData[k]?.phys||null});}const active=tasks.filter(t=>!t.doneDate).slice(0,6).map(t=>`[${t.priority}] ${t.title}`);const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);const sevenDS=toDS(sevenAgo.getFullYear(),sevenAgo.getMonth(),sevenAgo.getDate());const compl=tasks.filter(t=>t.doneDate&&t.doneDate!=="trivial"&&t.doneDate>=sevenDS).slice(-4).map(t=>t.title);const memStr=coachMemory.insights.length>0?"\n\nMemories about the user:\n"+coachMemory.insights.map((m,i)=>`${i+1}. ${m}`).join("\n"):"";const recentLogs=[];Object.entries(coachLogs||{}).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3).forEach(([dk,logs])=>{logs.forEach(log=>{if(log.messages){const notes=log.messages.filter(m=>m.role==="user"&&m.content&&m.content.length>10&&m.content!=="__pending__").map(m=>m.content).join(" / ");if(notes)recentLogs.push(`${dk}: ${notes}`);}});});const logsStr=recentLogs.length>0?"\n\nRecent check-in notes:\n"+recentLogs.join("\n"):"";return`Recent 7 days: ${JSON.stringify(recent)}. Active: ${active.join(", ")||"none"}. Completed: ${compl.join(", ")||"none"}.${logsStr}${memStr}`;},[moodData,actData,tasks,coachMemory]);
+  const loadInsight=async()=>{setInsightLoading(true);setInsight("Thinking…");setInsightError("");setInsightSecs(0);const timer=setInterval(()=>setInsightSecs(s=>s+1),1000);const ht=setTimeout(()=>{clearInterval(timer);setInsightLoading(false);setInsight("");setInsightError("Timed out — tap Refresh again.");},30000);try{const h=new Date().getHours();const tc=h<12?"morning":h<17?"midday":"evening";const memList=coachMemory?.insights?.length>0?"Known about the user:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";const insightPrompt=`It is ${tc}. You are the user's personal coach. Using everything you know about them — their recent mood, tasks, and especially these memories: ${memList||"none saved yet"} — give them ONE brief, specific, personal insight or nudge. Reference something real from their life. Do not include any [[TASK:]] lines. 2 sentences max. Do NOT ask about anything already resolved in the memories.`;const txt=await askCoach([{role:"user",content:insightPrompt}],buildCtx());if(txt&&txt.length>20){setInsight(txt);storageSet("wh_insight_today",{date:todayDS(),text:txt});}else{setInsight("");setInsightError("Empty response — tap Refresh to try again.");}}catch(e){setInsight("");setInsightError("Error: "+e.message);}clearInterval(timer);clearTimeout(ht);setInsightLoading(false);};
   useEffect(()=>{if(insightLoadedRef.current)return;insightLoadedRef.current=true;storageGet("wh_insight_today",null).then(saved=>{if(saved&&saved.date===todayDS()&&saved.text&&saved.text.length>20)setInsight(saved.text);else setInsight("Tap Refresh for your check-in insight.");});},[]);
   const doPatterns=async()=>{setPatLoading(true);setPatResult("");setError("");try{const txt=await askCoach([{role:"user",content:"Look at my mood and activity data. What patterns do you see? Be specific and personal."}],buildCtx());setPatResult(txt);}catch(e){setError(e.message);}setPatLoading(false);};
-  const sendMsg=async(override)=>{const msg=override||input.trim();if(!msg||chatLoading)return;setInput("");setError("");const newHist=[...chatHist,{role:"user",content:msg}];setChatHist(newHist);setChatLoading(true);try{const reply=await askCoach(newHist,buildCtx());const updated=[...newHist,{role:"assistant",content:reply}];setChatHist(updated.length>20?updated.slice(-20):updated);const lowerMsg=msg.toLowerCase();const memTrigger=lowerMsg.includes("save that")||lowerMsg.includes("remember that")||lowerMsg.includes("save it")||lowerMsg.includes("remind me")||lowerMsg.includes("remember this")||lowerMsg.includes("don't forget");if(memTrigger){try{const memPrompt=`The user said "${msg}". Extract ONE concise memory to save (max 20 words). Focus on preferences, boundaries, health updates, decisions, or things to remember. If nothing worth saving, respond with just "SKIP". Respond with only the memory text or SKIP.`;const memR=await askCoach([{role:"user",content:memPrompt}],buildCtx());if(memR&&!memR.includes("SKIP")&&memR.trim().length>5){const newMem=memR.trim();const updated2={insights:[...(coachMemory?.insights||[]),newMem],lastUpdated:todayDS()};onUpdateMemory(updated2);}}catch(e){}}}catch(e){if(e.message.includes("Rate limit")||e.message.includes("429")||e.message.includes("Network"))setError("Coach is offline — try again later.");else setChatHist(h=>[...h,{role:"assistant",content:"Sorry: "+e.message}]);}setChatLoading(false);};
+  const [chatTasksAdded,setChatTasksAdded]=useState([]);
+  const sendMsg=async(override)=>{const msg=override||input.trim();if(!msg||chatLoading)return;setInput("");setError("");if(!override){const ht=extractHashTasks(msg);if(ht.length){setTasks(prev=>[...prev,...ht.map(title=>({id:uid(),title,priority:"A",projectId:"misc",addedDate:todayDS(),doneDate:null,today:true}))]);setChatTasksAdded(ht);setTimeout(()=>setChatTasksAdded([]),4000);}}const newHist=[...chatHist,{role:"user",content:msg}];setChatHist(newHist);setChatLoading(true);try{const reply=await askCoach(newHist,buildCtx());const updated=[...newHist,{role:"assistant",content:reply}];setChatHist(updated.length>20?updated.slice(-20):updated);const lowerMsg=msg.toLowerCase();const memTrigger=lowerMsg.includes("save that")||lowerMsg.includes("remember that")||lowerMsg.includes("save it")||lowerMsg.includes("remind me")||lowerMsg.includes("remember this")||lowerMsg.includes("don't forget");if(memTrigger){try{const memPrompt=`The user said "${msg}". Extract ONE concise memory to save (max 20 words). Focus on preferences, boundaries, health updates, decisions, or things to remember. If nothing worth saving, respond with just "SKIP". Respond with only the memory text or SKIP.`;const memR=await askCoach([{role:"user",content:memPrompt}],buildCtx());if(memR&&!memR.includes("SKIP")&&memR.trim().length>5){const newMem=splitCoachTasks(memR).clean;const updated2={insights:[...(coachMemory?.insights||[]),newMem],lastUpdated:todayDS()};onUpdateMemory(updated2);}}catch(e){}}}catch(e){if(e.message.includes("Rate limit")||e.message.includes("429")||e.message.includes("Network"))setError("Coach is offline — try again later.");else setChatHist(h=>[...h,{role:"assistant",content:"Sorry: "+e.message}]);}setChatLoading(false);};
   return(<div>
     <PendingCatchupBanner coachLogs={coachLogs||{}} onSaveLog={onSaveLog||(()=>{})}/>
     {(()=>{const type=getCheckInType();const showCheckin=type&&!checkInDismissed;return(<>
@@ -991,12 +1044,12 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
         </div>
         {!insightDismissed&&<div style={{padding:"0 14px 14px"}}>
           {insightError&&<div style={{fontSize:".8rem",color:C.pa,marginBottom:4}}>⚠️ {insightError}</div>}
-          {insight&&<div style={{fontFamily:"Georgia,serif",fontSize:".95rem",fontStyle:"italic",lineHeight:1.72,color:C.text}}>{insight}</div>}
+          {insight&&<div style={{fontFamily:"Georgia,serif",fontSize:".95rem",fontStyle:"italic",lineHeight:1.72,color:C.text}}>{splitCoachTasks(insight).clean}</div>}
         </div>}
       </div>
-      {type&&<div style={{marginBottom:16}}><CheckInPanel moodData={moodData} actData={actData} tasks={tasks} coachLogs={coachLogs} dismissed={checkInDismissed} onDismiss={onDismissCheckIn} onSaveLog={onSaveLog} setTasks={setTasks} moodWords={moodWords} onSaveMood={onSaveMood} onSaveAct={onSaveAct} coachMemory={coachMemory} updateCoachMemory={onUpdateMemory}/></div>}
+      {type&&<div style={{marginBottom:16}}><CheckInPanel key={todayDS()+"_"+type} moodData={moodData} actData={actData} tasks={tasks} coachLogs={coachLogs} dismissed={checkInDismissed} onDismiss={onDismissCheckIn} onSaveLog={onSaveLog} setTasks={setTasks} moodWords={moodWords} onSaveMood={onSaveMood} onSaveAct={onSaveAct} coachMemory={coachMemory} updateCoachMemory={onUpdateMemory}/></div>}
     </>);})()}
-    {(coachLogs[todayDS()]||[]).filter(l=>["morning","midday","evening"].includes(l.type)&&l.type!==getCheckInType()&&l.messages?.filter(m=>m.content!=="__pending__").length>0).map((log,i)=>{const cfg2=CI[log.type]||{};return <CoachLogAddon key={i} log={log} dateKey={todayDS()} onSaveLog={onSaveLog} setTasks={setTasks} customLabel={`${cfg2.emoji||""} ${cfg2.label||log.type}`}/>;})}
+    {(coachLogs[todayDS()]||[]).filter(l=>["morning","midday","evening"].includes(l.type)&&l.type!==getCheckInType()&&l.messages?.filter(m=>m.content!=="__pending__").length>0).map((log,i)=>{const cfg2=CI[log.type]||{};return <CoachLogAddon key={i} log={log} dateKey={todayDS()} onSaveLog={onSaveLog} setTasks={setTasks} tasks={tasks} customLabel={`${cfg2.emoji||""} ${cfg2.label||log.type}`}/>;})}
     {error&&<div style={{background:"#fde8e7",border:`1px solid ${C.pa}`,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:".83rem",color:C.pa,display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}><span>⚠️ {error}</span><button onClick={()=>setError("")} style={{background:"none",border:"none",cursor:"pointer",color:C.pa,fontWeight:700,fontSize:".8rem"}}>▴ dismiss</button></div>}
     <CoachMemoryPanel coachMemory={coachMemory} onUpdateMemory={onUpdateMemory}/>
     <div style={S.card}>
@@ -1009,15 +1062,16 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
         </div>
       </div>
       {!chatCollapsed&&<div>
-        {Object.entries(coachLogs||{}).filter(([dk,logs])=>dk!==todayDS()&&logs.some(l=>l.type==="chat")).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,7).map(([dk,logs])=>{const cl=logs.find(l=>l.type==="chat");if(!cl)return null;const parts=dk.split("-");return <CoachLogAddon key={dk} log={cl} dateKey={dk} onSaveLog={onSaveLog} customLabel={`💬 ${MONTHS[parseInt(parts[1])-1]} ${parseInt(parts[2])}`}/>;})}
+        {Object.entries(coachLogs||{}).filter(([dk,logs])=>dk!==todayDS()&&logs.some(l=>l.type==="chat")).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,7).map(([dk,logs])=>{const cl=logs.find(l=>l.type==="chat");if(!cl)return null;const parts=dk.split("-");return <CoachLogAddon key={dk} log={cl} dateKey={dk} onSaveLog={onSaveLog} setTasks={setTasks} tasks={tasks} customLabel={`💬 ${MONTHS[parseInt(parts[1])-1]} ${parseInt(parts[2])}`}/>;})}
         <span style={S.secLbl}>Quick Prompts</span>
         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>{[["💪 Fitness","fitness"],["🧠 Procrastination","procrastination"],["🌅 Drifting","retired"],["🚶 Get Moving","moving"],["🎯 Focus Today","focus"],["🗓 Routine","routine"],["📊 Mood & Activity","moodact"]].map(([label,key])=><button key={key} onClick={()=>sendMsg(QPS[key])} disabled={chatLoading} style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:C.bg2,fontSize:".79rem",color:C.text2,cursor:"pointer"}}>{label}</button>)}</div>
         <div ref={msgsRef} style={{minHeight:180,maxHeight:400,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:8,background:C.bg,padding:"12px 14px 12px 20px",marginBottom:10,display:"flex",flexDirection:"column",gap:8}}>
           {chatHist.length===0&&<div style={{alignSelf:"flex-start",maxWidth:"86%",padding:"9px 13px",borderRadius:"10px 10px 10px 2px",background:C.card,border:`1px solid ${C.border}`,fontSize:".85rem",lineHeight:1.52}}>Hi! I'm your wellness coach. Use a quick prompt above, or ask me anything.</div>}
-          {chatHist.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",width:"100%"}}><div style={{maxWidth:"84%",padding:"9px 13px",fontSize:".85rem",lineHeight:1.52,whiteSpace:"pre-wrap",wordBreak:"break-word",borderRadius:m.role==="user"?"10px 10px 2px 10px":"10px 10px 10px 2px",background:m.role==="user"?C.accent:C.card,color:m.role==="user"?"#fff":C.text,border:m.role==="user"?"none":`1px solid ${C.border}`}}>{m.content}</div></div>)}
+          {chatHist.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",width:"100%"}}><div style={{maxWidth:"84%",padding:"9px 13px",fontSize:".85rem",lineHeight:1.52,whiteSpace:"pre-wrap",wordBreak:"break-word",borderRadius:m.role==="user"?"10px 10px 2px 10px":"10px 10px 10px 2px",background:m.role==="user"?C.accent:C.card,color:m.role==="user"?"#fff":C.text,border:m.role==="user"?"none":`1px solid ${C.border}`}}>{m.role==="assistant"?splitCoachTasks(m.content).clean:m.content}{m.role==="assistant"&&<CoachTaskButtons content={m.content} tasks={tasks} setTasks={setTasks}/>}</div></div>)}
           {chatLoading&&<div style={{alignSelf:"flex-start",padding:"9px 13px",borderRadius:"10px 10px 10px 2px",background:C.card,border:`1px solid ${C.border}`,fontSize:".85rem",color:C.text3,fontStyle:"italic"}}>Thinking…</div>}
         </div>
-        {patResult&&<div style={{padding:"12px 14px",background:C.bg2,borderRadius:8,border:`1px solid ${C.border}`,fontSize:".85rem",lineHeight:1.6,marginBottom:10,color:C.text}}>{patResult}</div>}
+        {chatTasksAdded.length>0&&<div style={{fontSize:".78rem",color:"#6b4c0a",background:C.td2,border:"1px solid #D4A820",borderRadius:6,padding:"4px 8px",marginBottom:6}}>🌅 Added to Today: {chatTasksAdded.join(", ")}</div>}
+        {patResult&&<div style={{padding:"12px 14px",background:C.bg2,borderRadius:8,border:`1px solid ${C.border}`,fontSize:".85rem",lineHeight:1.6,marginBottom:10,color:C.text,whiteSpace:"pre-wrap"}}>{splitCoachTasks(patResult).clean}<CoachTaskButtons content={patResult} tasks={tasks} setTasks={setTasks}/></div>}
       </div>}
       <div style={{display:"flex",gap:8,marginTop:chatCollapsed?0:8}}>
         <textarea style={{...S.input,flex:1,minHeight:44,maxHeight:120,resize:"none",lineHeight:1.4}} value={input} onChange={e=>setInput(e.target.value)} placeholder="Ask your coach anything…" rows={2}/>
@@ -1030,8 +1084,9 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
 
 function SettingsModal({onClose}){
   const [key,setKey]=useState(getApiKey());
+  const [about,setAbout]=useState(getAboutMe());
   const [saved,setSaved]=useState(false);
-  const handleSave=()=>{setApiKey(key.trim());setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  const handleSave=()=>{setApiKey(key.trim());setAboutMe(about.trim());setSaved(true);setTimeout(()=>setSaved(false),2000);};
   const masked=key?key.slice(0,8)+"…"+key.slice(-4):"";
   return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:440}} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:4}}>⚙️ Settings</div>
@@ -1042,25 +1097,39 @@ function SettingsModal({onClose}){
       {key&&<div style={{fontSize:".72rem",color:C.text3,marginTop:4}}>Saved as: {masked}</div>}
       <div style={{fontSize:".75rem",color:C.text3,marginTop:8}}>Get your key at <strong>console.anthropic.com</strong> → API Keys. Never share it.</div>
     </div>
+    <div style={{marginBottom:16}}>
+      <label style={{display:"block",fontSize:".82rem",fontWeight:600,color:C.text2,marginBottom:6}}>🙋 About me (for Coach)</label>
+      <textarea style={{...S.textarea,minHeight:120,fontSize:"16px"}} value={about} onChange={e=>{setAbout(e.target.value);setSaved(false);}} placeholder="Who you are, what motivates you, health notes, hobbies — anything Coach should always know."/>
+      <div style={{fontSize:".72rem",color:C.text3,marginTop:4}}>Kept on this device and included in your 💾 backups.</div>
+    </div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={onClose}>Cancel</button>
-      <button style={btn("primary")} onClick={handleSave}>{saved?"✓ Saved!":"Save Key"}</button>
+      <button style={btn("primary")} onClick={handleSave}>{saved?"✓ Saved!":"Save"}</button>
     </div>
   </div></div>);
 }
 
-function ExportModal({moodData,actData,tasks,projects,moodWords,actWords,coachLogs,onClose,onImport}){
-  const exportStr=JSON.stringify({exportDate:new Date().toISOString(),moodData,actData,tasks,projects,moodWords,actWords,coachLogs},null,2);
+function ExportModal({moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory,onClose,onImport}){
+  const exportStr=JSON.stringify({exportDate:new Date().toISOString(),moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory,aboutMe:getAboutMe()},null,2);
   const importRef=useRef();
   const [pasteVal,setPasteVal]=React.useState("");
   const [showPaste,setShowPaste]=React.useState(false);
-  const handlePasteImport=()=>{try{const d=JSON.parse(pasteVal);onImport(d);onClose();alert("✅ Data imported!");}catch{alert("❌ Could not read that JSON. Make sure you copied the full export text.");}};
-  const handleImport=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const d=JSON.parse(ev.target.result);onImport(d);onClose();alert("✅ Data imported!");}catch{alert("❌ Could not read that file.");}};reader.readAsText(file);e.target.value="";};
+  // Safety check before a restore replaces everything: confirm it's a Mizmo backup and show what's in it
+  const confirmRestore=d=>{
+    if(!d||typeof d!=="object"||!Array.isArray(d.tasks)){alert("❌ This doesn't look like a Mizmo Go! backup. Nothing was changed.");return false;}
+    let when="an unknown date";if(d.exportDate){const dt=new Date(d.exportDate);if(!isNaN(dt))when=dt.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});}
+    const bActive=d.tasks.filter(t=>!t.doneDate).length;const curActive=tasks.filter(t=>!t.doneDate).length;
+    const memNote=d.coachMemory&&Array.isArray(d.coachMemory.insights)?`\n• ${d.coachMemory.insights.length} Coach memories`:"\n• No Coach memories in this backup (your current ones will be kept)";
+    return window.confirm(`Restore this backup?\n\nBackup from: ${when}\n• ${bActive} active tasks (${d.tasks.length} total)${memNote}\n\nThe app currently has ${curActive} active tasks (${tasks.length} total).\n\nRestoring REPLACES what's in the app now.`);
+  };
+  const handlePasteImport=()=>{let d;try{d=JSON.parse(pasteVal);}catch{alert("❌ Could not read that JSON. Make sure you copied the full export text.");return;}if(!confirmRestore(d))return;onImport(d);onClose();alert("✅ Data imported!");};
+  const handleImport=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{let d;try{d=JSON.parse(ev.target.result);}catch{alert("❌ Could not read that file.");return;}if(!confirmRestore(d))return;onImport(d);onClose();alert("✅ Data imported!");};reader.readAsText(file);e.target.value="";};
   return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:500}} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:4}}>Backup / Restore Data</div>
     <div style={{fontSize:".78rem",color:C.text3,marginBottom:12}}>Copy this JSON to back up all your data. Use Restore to bring it back on any device.</div>
     <textarea id="export-json-ta" style={{...S.textarea,fontFamily:"monospace",fontSize:".72rem",minHeight:240,background:C.bg2}} readOnly value={exportStr} onFocus={e=>{e.target.select();}}/>
-    <div style={{fontSize:".75rem",color:C.text3,marginTop:4,textAlign:"center",marginBottom:12}}>Tap in the box above to select all, then copy</div>
+    <div style={{fontSize:".75rem",color:C.text3,marginTop:4,textAlign:"center",marginBottom:6}}>Tap in the box above to select all, then copy</div>
+    <div style={{fontSize:".74rem",color:C.text3,textAlign:"center",marginBottom:12,fontStyle:"italic"}}>🔑 Your Coach API key is not included in backups — keep your own copy.</div>
     <input ref={importRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImport}/>
     <div style={{display:"flex",justifyContent:"space-between",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={()=>importRef.current.click()}>📂 Restore from file</button><button style={btn("ghost")} onClick={()=>setShowPaste(p=>!p)}>📋 Paste JSON</button>{showPaste&&<div style={{marginTop:8,padding:8,background:C.bg2,borderRadius:8}}><textarea style={{...S.textarea,fontFamily:"monospace",fontSize:".72rem",minHeight:80,background:C.bg}} placeholder="Paste your JSON backup here..." value={pasteVal} onChange={e=>setPasteVal(e.target.value)}/><button style={{...btn("primary"),marginTop:6,width:"100%"}} onClick={handlePasteImport}>✅ Import Pasted JSON</button></div>}
@@ -1076,6 +1145,10 @@ function App(){
   useEffect(()=>{const style=document.createElement("style");style.innerHTML=`*{box-sizing:border-box!important;}body,html{margin:0!important;padding:0!important;}[data-drag],[data-drag] *{user-select:none!important;-webkit-user-select:none!important;touch-action:none!important;}`;document.head.appendChild(style);return()=>document.head.removeChild(style);},[]);
   const [tab,setTab]=useState("coach");const [loaded,setLoaded]=useState(false);const [showExport,setShowExport]=useState(false);const [showSearch,setShowSearch]=useState(false);const [searchQ,setSearchQ]=useState("");
   const [moodData,setMoodData]=useState({});const [actData,setActData]=useState({});const [projects,setProjects]=useState([]);const [tasks,setTasks]=useState([]);const [moodWords,setMoodWords]=useState([]);const [actWords,setActWords]=useState([]);const [coachLogs,setCoachLogs]=useState({});const [coachMemory,setCoachMemory]=useState({insights:[],lastUpdated:null});
+  const clockKey=()=>todayDS()+"|"+getCheckInType();
+  const [clock,setClock]=useState(clockKey());
+  useEffect(()=>{const tick=()=>setClock(c=>{const k=clockKey();return k===c?c:k;});const iv=setInterval(tick,60000);document.addEventListener("visibilitychange",tick);window.addEventListener("focus",tick);return()=>{clearInterval(iv);document.removeEventListener("visibilitychange",tick);window.removeEventListener("focus",tick);};},[]);
+  const dayKey=clock.split("|")[0];
   const [moodModal,setMoodModal]=useState(null);const [wordModal,setWordModal]=useState(null);const [checkInDismissed,setCheckInDismissed]=useState(false);const [showSettings,setShowSettings]=useState(false);
 
   useEffect(()=>{(async()=>{
@@ -1086,8 +1159,9 @@ function App(){
   })();},[]);
 
   useEffect(()=>{if(!loaded)return;const today=todayDS();const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);const threeDaysStr=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());setTasks(prev=>{let changed=false;const updated=prev.map(t=>{// Auto-manage recurring task availability
-if(t.recur&&!t.doneDate){if(t.dueDate&&t.dueDate<=threeDaysStr&&t.priority!=="A"){changed=true;return{...t,priority:"A"};}if((!t.dueDate||t.dueDate>threeDaysStr)&&t.priority!=="B"){changed=true;return{...t,priority:"B"};}}return t;});const updated2=updated.map(t=>{if(t.dueDate===today&&!t.today&&!t.doneDate){changed=true;return{...t,today:true};}if(t.inProgress&&!t.doneDate&&!t.today&&t.progressedOn===today){changed=true;return{...t,today:true};}if(t.completedOn&&t.completedOn!==today){changed=true;return{...t,today:undefined,completedOn:undefined,progressedOn:undefined};}// Waiting tasks due within 3 days resurface on On Deck
-if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){changed=true;return{...t,onDeck:true};}return t;});return changed?updated2:prev;});},[loaded]);
+if(t.recur&&!t.doneDate&&t.recurMode==="fixed"&&t.dueDate&&t.dueDate<today&&!isManualRecur(t.recur)){let n=t.dueDate,g=0;while(n<today&&g++<1000)n=addInterval(n,t.recur);changed=true;t={...t,dueDate:n,today:undefined,calculatedDate:true};}
+if(t.recur&&!t.doneDate){if(t.dueDate&&t.dueDate<=threeDaysStr&&t.priority!=="A"){changed=true;return{...t,priority:"A"};}if((!t.dueDate||t.dueDate>threeDaysStr)&&t.priority!=="B"){changed=true;return{...t,priority:"B"};}}return t;});const updated2=updated.map(t=>{if((t.dueDate===today||schedOf(t)===today)&&!t.today&&!t.doneDate){changed=true;return{...t,today:true};}if(t.inProgress&&!t.doneDate&&!t.today&&t.progressedOn===today){changed=true;return{...t,today:true};}if(t.completedOn&&t.completedOn!==today){changed=true;return{...t,today:undefined,completedOn:undefined,progressedOn:undefined};}// Waiting tasks due within 3 days resurface on On Deck
+if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){changed=true;return{...t,onDeck:true};}return t;});return changed?updated2:prev;});},[loaded,dayKey]);
 
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.mood,moodData);},[moodData,loaded]);
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.act,actData);},[actData,loaded]);
@@ -1099,7 +1173,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
 
   const handleUpdateMemory=mem=>{setCoachMemory(mem);saveCoachMemory(mem);};
   const saveCoachLog=(dateKey,type,messages,meta={})=>{setCoachLogs(prev=>{const existing=prev[dateKey]||[];const filtered=existing.filter(l=>l.type!==type);return{...prev,[dateKey]:[...filtered,{type,messages,savedAt:new Date().toISOString(),...meta}]};});if(meta.mood&&type!=="chat"){setMoodData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,mood:meta.mood,words:meta.words||[]}}});}if(meta.phys&&type==="evening"){setActData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,phys:meta.phys}}});}};
-  const handleImport=d=>{if(d.tasks)setTasks(d.tasks);if(d.projects)setProjects(d.projects);if(d.moodData)setMoodData(d.moodData);if(d.actData)setActData(d.actData);if(d.moodWords)setMoodWords(d.moodWords);if(d.actWords)setActWords(d.actWords);if(d.coachLogs)setCoachLogs(d.coachLogs);};
+  const handleImport=d=>{if(d.tasks)setTasks(d.tasks);if(d.projects)setProjects(d.projects);if(d.moodData)setMoodData(d.moodData);if(d.actData)setActData(d.actData);if(d.moodWords)setMoodWords(d.moodWords);if(d.actWords)setActWords(d.actWords);if(d.coachLogs)setCoachLogs(d.coachLogs);if(d.coachMemory&&Array.isArray(d.coachMemory.insights))handleUpdateMemory(d.coachMemory);if(typeof d.aboutMe==="string"&&d.aboutMe.trim())setAboutMe(d.aboutMe);};
   const saveMood=(key,data)=>{setMoodData(m=>({...m,[key]:data}));setMoodModal(null);};
   const handleAddWord=(target,words,setWords)=>setWordModal({target,words,setWords});
   const saveWord=word=>{const{target,words,setWords}=wordModal;if(target==="mood")setMoodWords(w=>w.includes(word)?w:[...w,word]);else setActWords(w=>w.includes(word)?w:[...w,word]);if(!words.includes(word))setWords([...words,word]);setWordModal(null);};
@@ -1149,7 +1223,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
     </div>
     {moodModal&&<MoodModal dateKey={moodModal} moodData={moodData} moodWords={moodWords} tasks={tasks} coachLogs={coachLogs} onSave={saveMood} onClose={()=>setMoodModal(null)} onAddWord={handleAddWord} onSaveLog={saveCoachLog} setTasks={setTasks} onReopenTask={id=>setTasks(prev=>prev.map(t=>t.id===id?{...t,doneDate:null}:t))}/>}
     {wordModal&&<WordModal onSave={saveWord} onClose={()=>setWordModal(null)}/>}
-    {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)}/> }{showExport&&<ExportModal moodData={moodData} actData={actData} tasks={tasks} projects={projects} moodWords={moodWords} actWords={actWords} coachLogs={coachLogs} onClose={()=>setShowExport(false)} onImport={handleImport}/>}
+    {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)}/> }{showExport&&<ExportModal moodData={moodData} actData={actData} tasks={tasks} projects={projects} moodWords={moodWords} actWords={actWords} coachLogs={coachLogs} coachMemory={coachMemory} onClose={()=>setShowExport(false)} onImport={handleImport}/>}
   </div>);
 }
 
