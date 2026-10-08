@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
-  <meta name="apple-mobile-web-app-title" content="Mizmo Go!"/>
-  <title>Mizmo Go!</title>
+  <meta name="apple-mobile-web-app-title" content="MoGo"/>
+  <title>MoGo</title>
+  <link rel="apple-touch-icon" href="icon.png"/>
   <style>* { box-sizing: border-box; margin: 0; padding: 0; } html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; } body { font-family: Georgia, serif; background: #F6F3EE; }</style>
 </head>
 <body>
@@ -108,9 +109,11 @@ async function storageSet(key,val){try{await window.storage.set(key,JSON.stringi
 function getApiKey(){return localStorage.getItem("mizmo_api_key")||"";}
 function setApiKey(key){localStorage.setItem("mizmo_api_key",key);}
 
-const COACH_SYS=`You are a warm, practical wellness coach inside Mizmo Go!, a personal task and wellness app. Keep responses conversational, 2-5 sentences. Ask ONE question at a time when exploring procrastination.
+const COACH_SYS=`Your name is Kate. You are the user's coach inside MoGo, a personal task and wellness app. (The app used to call you "Coach"; past conversations may use that name — it was you.)
 
-Use the "About the user" section (if provided) for who they are. You have persistent memory provided to you in context. When the user says "save that", "remember that", "save it", "remind me", or similar — acknowledge that it has been saved. When they say "forget that" acknowledge the removal. When they ask "what do you remember" or "what have you saved" — list ONLY the memories explicitly provided to you in the context under "Memories about the user". Do NOT invent or include anything from the conversation that is not in that saved list. You receive recent conversation history and memories in context — use them naturally without narrating that you're doing so. Notice patterns in when tasks get done (morning/afternoon/evening) and gently surface insights about procrastination when relevant.
+Personality: warm and on her side, but brisk, plain-spoken and spirited, with a dry wit. You believe in her and you don't coddle. When she's dodging something, say so — kindly, directly, once — then help her take the smallest next step. Celebrate real progress without gushing. No lectures, no therapy-speak, no long lists. Keep responses conversational, 2-5 sentences. Ask ONE question at a time when exploring procrastination.
+
+Use the "About the user" section (if provided) for who they are. You have persistent memory provided to you in context. When the user says "save that", "remember that", "save it", "remind me", or similar — acknowledge that it has been saved. You cannot delete or change saved memories yourself. When they ask you to forget or correct a memory, do NOT say it's done — tell them to open "What Kate Remembers" on this screen: tap a memory to edit it, or 🗑 to forget it. When they ask "what do you remember" or "what have you saved" — list ONLY the memories explicitly provided to you in the context under "Memories about the user". Do NOT invent or include anything from the conversation that is not in that saved list. You receive recent conversation history and memories in context — use them naturally without narrating that you're doing so. Notice patterns in when tasks get done (morning/afternoon/evening) and gently surface insights about procrastination when relevant.
 
 Always use the current date and time given below — never guess the date.
 
@@ -156,7 +159,7 @@ async function askCoach(messages,ctx=""){
   const headers={"content-type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"};
   if(apiKey){headers["x-api-key"]=apiKey;}
   try{res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",signal:controller.signal,headers,body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,stream:false,system:sys,messages:messages.slice(-12)})});}
-  catch(e){clearTimeout(timeout);if(e.name==="AbortError")throw new Error("Coach timed out — try again.");throw new Error("Network error: "+e.message);}
+  catch(e){clearTimeout(timeout);if(e.name==="AbortError")throw new Error("Kate timed out — try again.");throw new Error("Network error: "+e.message);}
   clearTimeout(timeout);
   if(!res.ok){if(res.status===429)throw new Error("Rate limit — wait a moment.");if(res.status===401)throw new Error("API key invalid — check Settings.");throw new Error("HTTP "+res.status);}
   const data=await res.json();
@@ -276,7 +279,7 @@ function MoodModal({dateKey,moodData,moodWords,tasks,coachLogs,onSave,onClose,on
     <FormRow label="Words that fit"><ChipsEditor wordList={moodWords} selected={words} onChange={setWords} onAddWord={()=>onAddWord("mood",words,setWords)}/></FormRow>
     <FormRow label="Notes"><textarea style={S.textarea} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything on your mind…"/></FormRow>
     {completed.length>0&&<div style={{marginTop:8}}><span style={S.secLbl}>Completed this day</span><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{completed.map(t=><span key={t.id} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",background:C.bg2,borderRadius:10,fontSize:".74rem",border:`1px solid ${C.border}`,color:C.text2}}>✓ {t.title}<button onClick={()=>onReopenTask&&onReopenTask(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.text3,fontSize:".8rem",padding:0}}>↩</button></span>)}</div></div>}
-    {(coachLogs[dateKey]||[]).length>0&&<div style={{marginTop:12}}><span style={S.secLbl}>💬 Coach Conversations</span>{(coachLogs[dateKey]||[]).map((log,li)=><CoachLogAddon key={li} log={log} dateKey={dateKey} onSaveLog={onSaveLog} setTasks={setTasks} tasks={tasks}/>)}</div>}
+    {(coachLogs[dateKey]||[]).length>0&&<div style={{marginTop:12}}><span style={S.secLbl}>💬 Kate Conversations</span>{(coachLogs[dateKey]||[]).map((log,li)=><CoachLogAddon key={li} log={log} dateKey={dateKey} onSaveLog={onSaveLog} setTasks={setTasks} tasks={tasks}/>)}</div>}
     <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={onClose}>Cancel</button>
       <button style={btn("primary")} onClick={()=>{if(!mood){alert("Please choose how today felt.");return;}onSave(dateKey,{mood,words,notes});}}>Save</button>
@@ -927,7 +930,7 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
     // Long-term memories
     const mems=coachMemory?.insights?.length>0?"Memories about the user:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";
     // Recent chat history (last 5 days, excluding today)
-    const recentChats=Object.entries(coachLogs||{}).filter(([dk,logs])=>dk!==todayDS()&&dk>=sevenAgoDS&&logs.some(l=>l.messages?.length>0)).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,5).map(([dk,logs])=>{const chatLog=logs.find(l=>l.type==="chat")||logs[0];const msgs=(chatLog?.messages||[]).filter(m=>m.content&&m.content!=="__pending__").slice(-6).map(m=>(m.role==="user"?"User":"Coach")+": "+m.content).join("\n");return msgs?("--- "+dk+" ---\n"+msgs):null;}).filter(Boolean).join("\n\n");
+    const recentChats=Object.entries(coachLogs||{}).filter(([dk,logs])=>dk!==todayDS()&&dk>=sevenAgoDS&&logs.some(l=>l.messages?.length>0)).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,5).map(([dk,logs])=>{const chatLog=logs.find(l=>l.type==="chat")||logs[0];const msgs=(chatLog?.messages||[]).filter(m=>m.content&&m.content!=="__pending__").slice(-6).map(m=>(m.role==="user"?"User":"Kate")+": "+m.content).join("\n");return msgs?("--- "+dk+" ---\n"+msgs):null;}).filter(Boolean).join("\n\n");
     let ctx="Recent mood/activity: "+JSON.stringify(recent)+".\nActive tasks: "+(ts.join(", ")||"none")+".\nCompleted last 7 days: "+(done.join(", ")||"none")+".";
     if(mems)ctx+="\n\n"+mems;
     if(recentChats)ctx+="\n\nRecent conversations:\n"+recentChats;
@@ -942,18 +945,14 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
     try{const r=await askCoach(isFirst?[apiMsg]:[...chatHist,userMsg],buildCtx());const updatedHist=[...displayHist,{role:"assistant",content:r}];setChatHist(updatedHist);if(onSaveLog)onSaveLog(todayDS(),type,updatedHist,{mood,words,phys});
       // Memory trigger detection
       const lowerText=text.toLowerCase();const memTrigger=lowerText.includes("save that")||lowerText.includes("save it")||lowerText.includes("remember that")||lowerText.includes("remind me")||lowerText.includes("remember this");
-      const forgetTrigger=lowerText.includes("forget that")||lowerText.startsWith("forget ");
       const listTrigger=lowerText.includes("what do you remember")||lowerText.includes("what have you saved");
       if(memTrigger){
         // Ask Coach to extract the key insight
         try{const memPrompt=`The user said "${text}" after this conversation. Extract ONE concise memory to save (max 20 words). Focus on preferences, boundaries, procrastination patterns, decisions, or things they want remembered. If it's just casual conversation not worth saving, respond with just "SKIP". Respond with only the memory text or SKIP.`;
         const memR=await askCoach([{role:"user",content:memPrompt}],buildCtx());
         if(memR&&!memR.includes("SKIP")&&memR.trim().length>5){const newMem=splitCoachTasks(memR).clean;const updated={insights:[...(coachMemory?.insights||[]),newMem],lastUpdated:todayDS()};updateCoachMemory(updated);}}catch(e){}
-      } else if(forgetTrigger){
-        // Remove last memory
-        if(coachMemory?.insights?.length>0){const updated={...coachMemory,insights:coachMemory.insights.slice(0,-1)};updateCoachMemory(updated);}
       }}
-    catch(e){const offline=e.message.includes("429")||e.message.includes("Rate limit")||e.message.includes("Network")||e.message.includes("401");if(offline){const ph=[...displayHist,{role:"assistant",content:"__pending__",pendingAt:new Date().toISOString()}];setChatHist(ph);if(onSaveLog)onSaveLog(todayDS(),type,ph,{mood,words,phys});setError("Coach is unavailable — your thoughts are saved.");}else{setError(e.message);setChatHist(h=>[...h,{role:"assistant",content:"Sorry, had trouble responding. Try again."}]);}}
+    catch(e){const offline=e.message.includes("429")||e.message.includes("Rate limit")||e.message.includes("Network")||e.message.includes("401");if(offline){const ph=[...displayHist,{role:"assistant",content:"__pending__",pendingAt:new Date().toISOString()}];setChatHist(ph);if(onSaveLog)onSaveLog(todayDS(),type,ph,{mood,words,phys});setError("Kate is unavailable — your thoughts are saved.");}else{setError(e.message);setChatHist(h=>[...h,{role:"assistant",content:"Sorry, had trouble responding. Try again."}]);}}
     setLoading(false);
   };
   if(dismissed)return(<div style={{background:`linear-gradient(135deg,${cfg.bg},${C.bg2})`,border:`1.5px solid ${cfg.border}`,borderRadius:14,marginBottom:16,padding:"10px 14px",display:"flex",alignItems:"center",gap:8,cursor:"pointer"}} onClick={onDismiss}><span style={{fontFamily:"Georgia,serif",fontSize:".95rem",fontWeight:600,flex:1}}>{cfg.emoji} {cfg.label} check-in</span><span style={{color:C.text3,fontSize:".85rem"}}>▾ open</span></div>);
@@ -987,7 +986,7 @@ function PendingCatchupBanner({coachLogs,onSaveLog}){
   const catchUp=async()=>{setCatching(true);for(const{dateKey,log}of pending){setStatus(`Catching up on your ${log.type} check-in from ${dateKey}…`);const cleanMsgs=log.messages.filter(m=>m.content!=="__pending__");try{const r=await askCoach(cleanMsgs);onSaveLog(dateKey,log.type,[...cleanMsgs,{role:"assistant",content:r}]);}catch(e){setStatus("Still offline — try again later.");setCatching(false);return;}}setStatus("");setCatching(false);setDone(true);};
   return(<div style={{background:"#FEF3C7",border:"1.5px solid #D4A820",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"flex-start",gap:10}}>
     <span style={{fontSize:"1.2rem",flexShrink:0}}>⏸️</span>
-    <div style={{flex:1}}><div style={{fontWeight:600,fontSize:".88rem",marginBottom:3}}>{pending.length} check-in {pending.length===1?"response":"responses"} waiting</div><div style={{fontSize:".8rem",color:"#6b4c0a"}}>{catching?status:"Your thoughts were saved while Coach was offline. Ready to respond now."}</div></div>
+    <div style={{flex:1}}><div style={{fontWeight:600,fontSize:".88rem",marginBottom:3}}>{pending.length} check-in {pending.length===1?"response":"responses"} waiting</div><div style={{fontSize:".8rem",color:"#6b4c0a"}}>{catching?status:"Your thoughts were saved while Kate was offline. Ready to respond now."}</div></div>
     {!catching&&<button onClick={catchUp} style={{flexShrink:0,padding:"6px 14px",background:"#B8941F",color:"#fff",border:"none",borderRadius:8,fontSize:".82rem",fontWeight:600,cursor:"pointer"}}>Catch up</button>}
     {catching&&<div style={{flexShrink:0,fontSize:".82rem",color:"#6b4c0a",fontStyle:"italic"}}>Working…</div>}
   </div>);
@@ -996,26 +995,32 @@ function PendingCatchupBanner({coachLogs,onSaveLog}){
 const QPS={fitness:"Give me a specific fitness suggestion — one concrete thing I can do this week to improve flexibility, strength, or cardio.",procrastination:"I've been procrastinating. Don't give me tips — ask me ONE thoughtful question to help me understand why.",retired:"I'm retired and sometimes feel like I'm drifting. Help me think about this meaningfully.",moving:"I need to get moving today. Suggest one small, specific physical thing I can do right now.",focus:"Looking at my active tasks, what should I focus on today? Help me pick the most important one or two.",routine:"Help me think about building a daily routine for a retired, project-oriented person who wants structure but not rigidity.",moodact:"What connection do you see between my mood and activity levels based on my data?"};
 
 function CoachMemoryPanel({coachMemory,onUpdateMemory}){
-  const [open,setOpen]=useState(false);
+  const [open,setOpen]=useState(false);const [editIdx,setEditIdx]=useState(null);const [draft,setDraft]=useState("");
   if(!coachMemory?.insights?.length)return null;
   const reversed=[...coachMemory.insights].reverse();
+  const saveEdit=i=>{const t=draft.trim();if(!t)return;onUpdateMemory({...coachMemory,insights:coachMemory.insights.map((x,j)=>j===i?t:x),lastUpdated:todayDS()});setEditIdx(null);};
+  const del=(i,ins)=>{if(window.confirm(`Forget this memory?\n\n"${ins}"`)){onUpdateMemory({...coachMemory,insights:coachMemory.insights.filter((_,j)=>j!==i),lastUpdated:todayDS()});setEditIdx(null);}};
   return(<div style={{...S.card,marginBottom:18}}>
     <div style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}} onClick={()=>setOpen(v=>!v)}>
-      <div style={{fontFamily:"Georgia,serif",fontSize:"1rem",fontWeight:600,flex:1}}>🧠 What Coach Remembers</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:"1rem",fontWeight:600,flex:1}}>🧠 What Kate Remembers</div>
       <span style={{fontSize:".75rem",color:C.text3}}>{coachMemory.insights.length} note{coachMemory.insights.length!==1?"s":""}</span>
       <span style={{fontSize:".75rem",color:C.text3,transform:open?"":"rotate(-90deg)",display:"inline-block",transition:"transform .2s"}}>▾</span>
     </div>
     {open&&<>
-      <ul style={{margin:"10px 0 0",padding:0,display:"flex",flexDirection:"column",gap:4}}>
+      <div style={{fontSize:".72rem",color:C.text3,fontStyle:"italic",margin:"6px 0 2px"}}>Tap a memory to edit it. 🗑 to forget it.</div>
+      <ul style={{margin:"6px 0 0",padding:0,display:"flex",flexDirection:"column",gap:6}}>
         {reversed.map((ins,ri)=>{const i=coachMemory.insights.length-1-ri;return(<li key={i} style={{fontSize:".83rem",color:C.text2,lineHeight:1.5,display:"flex",alignItems:"flex-start",gap:6,listStyle:"none"}}>
-          <span style={{color:C.accent,flexShrink:0}}>•</span>
-          <span style={{flex:1}}>{ins}</span>
-          <button onClick={e=>{e.stopPropagation();onUpdateMemory({...coachMemory,insights:coachMemory.insights.filter((_,j)=>j!==i)});}} style={{background:"none",border:"none",cursor:"pointer",color:C.text3,fontSize:".75rem",flexShrink:0}}>✕</button>
+          <span style={{color:C.accent,flexShrink:0,marginTop:editIdx===i?6:0}}>•</span>
+          {editIdx===i
+            ?<div style={{flex:1}}><textarea style={{...S.textarea,fontSize:"16px",minHeight:60}} value={draft} onChange={e=>setDraft(e.target.value)} autoFocus/>
+              <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:4}}><button style={btn("ghost",{padding:"4px 10px",fontSize:".76rem"})} onClick={()=>setEditIdx(null)}>Cancel</button><button style={btn("primary",{padding:"4px 10px",fontSize:".76rem"})} onClick={()=>saveEdit(i)}>Save</button></div></div>
+            :<span style={{flex:1,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>{setEditIdx(i);setDraft(ins);}}>{ins}</span>}
+          {editIdx!==i&&<button onClick={e=>{e.stopPropagation();del(i,ins);}} style={{...S.btnIcon,width:26,height:26,flexShrink:0}} title="Forget this memory">🗑</button>}
         </li>);})}
       </ul>
-      <div style={{marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div style={{fontSize:".72rem",color:C.text3}}>Last updated: {coachMemory.lastUpdated?new Date(coachMemory.lastUpdated).toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"numeric"}):"—"}</div>
-        <button onClick={e=>{e.stopPropagation();onUpdateMemory({insights:[],lastUpdated:null});}} style={{fontSize:".72rem",color:C.text3,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Clear all</button>
+      <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{fontSize:".72rem",color:C.text3}}>Last updated: {coachMemory.lastUpdated?new Date(coachMemory.lastUpdated.length===10?coachMemory.lastUpdated+"T12:00:00":coachMemory.lastUpdated).toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"numeric"}):"—"}</div>
+        <button onClick={e=>{e.stopPropagation();if(window.confirm(`Forget ALL ${coachMemory.insights.length} memories? This can't be undone.`))onUpdateMemory({insights:[],lastUpdated:null});}} style={{fontSize:".72rem",color:C.text3,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Clear all</button>
       </div>
     </>}
   </div>);
@@ -1026,11 +1031,11 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
   useEffect(()=>{if(chatLoaded&&chatHist.length>0&&onSaveLog)onSaveLog(todayDS(),"chat",chatHist);},[chatHist,chatLoaded]);
   useEffect(()=>{if(msgsRef.current)msgsRef.current.scrollTop=msgsRef.current.scrollHeight;},[chatHist,chatLoading]);
   const buildCtx=useCallback(()=>{const recent=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood||null,phys:actData[k]?.phys||null});}const active=tasks.filter(t=>!t.doneDate).slice(0,6).map(t=>`[${t.priority}] ${t.title}`);const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);const sevenDS=toDS(sevenAgo.getFullYear(),sevenAgo.getMonth(),sevenAgo.getDate());const compl=tasks.filter(t=>t.doneDate&&t.doneDate!=="trivial"&&t.doneDate>=sevenDS).slice(-4).map(t=>t.title);const memStr=coachMemory.insights.length>0?"\n\nMemories about the user:\n"+coachMemory.insights.map((m,i)=>`${i+1}. ${m}`).join("\n"):"";const recentLogs=[];Object.entries(coachLogs||{}).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3).forEach(([dk,logs])=>{logs.forEach(log=>{if(log.messages){const notes=log.messages.filter(m=>m.role==="user"&&m.content&&m.content.length>10&&m.content!=="__pending__").map(m=>m.content).join(" / ");if(notes)recentLogs.push(`${dk}: ${notes}`);}});});const logsStr=recentLogs.length>0?"\n\nRecent check-in notes:\n"+recentLogs.join("\n"):"";return`Recent 7 days: ${JSON.stringify(recent)}. Active: ${active.join(", ")||"none"}. Completed: ${compl.join(", ")||"none"}.${logsStr}${memStr}`;},[moodData,actData,tasks,coachMemory]);
-  const loadInsight=async()=>{setInsightLoading(true);setInsight("Thinking…");setInsightError("");setInsightSecs(0);const timer=setInterval(()=>setInsightSecs(s=>s+1),1000);const ht=setTimeout(()=>{clearInterval(timer);setInsightLoading(false);setInsight("");setInsightError("Timed out — tap Refresh again.");},30000);try{const h=new Date().getHours();const tc=h<12?"morning":h<17?"midday":"evening";const memList=coachMemory?.insights?.length>0?"Known about the user:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";const insightPrompt=`It is ${tc}. You are the user's personal coach. Using everything you know about them — their recent mood, tasks, and especially these memories: ${memList||"none saved yet"} — give them ONE brief, specific, personal insight or nudge. Reference something real from their life. Do not include any [[TASK:]] lines. 2 sentences max. Do NOT ask about anything already resolved in the memories.`;const txt=await askCoach([{role:"user",content:insightPrompt}],buildCtx());if(txt&&txt.length>20){setInsight(txt);storageSet("wh_insight_today",{date:todayDS(),text:txt});}else{setInsight("");setInsightError("Empty response — tap Refresh to try again.");}}catch(e){setInsight("");setInsightError("Error: "+e.message);}clearInterval(timer);clearTimeout(ht);setInsightLoading(false);};
+  const loadInsight=async()=>{setInsightLoading(true);setInsight("Thinking…");setInsightError("");setInsightSecs(0);const timer=setInterval(()=>setInsightSecs(s=>s+1),1000);const ht=setTimeout(()=>{clearInterval(timer);setInsightLoading(false);setInsight("");setInsightError("Timed out — tap Refresh again.");},30000);try{const h=new Date().getHours();const tc=h<12?"morning":h<17?"midday":"evening";const memList=coachMemory?.insights?.length>0?"Known about the user:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";const insightPrompt=`It is ${tc}. You are Kate, the user's personal coach. Using everything you know about them — their recent mood, tasks, and especially these memories: ${memList||"none saved yet"} — give them ONE brief, specific, personal insight or nudge. Reference something real from their life. Do not include any [[TASK:]] lines. 2 sentences max. Do NOT ask about anything already resolved in the memories.`;const txt=await askCoach([{role:"user",content:insightPrompt}],buildCtx());if(txt&&txt.length>20){setInsight(txt);storageSet("wh_insight_today",{date:todayDS(),text:txt});}else{setInsight("");setInsightError("Empty response — tap Refresh to try again.");}}catch(e){setInsight("");setInsightError("Error: "+e.message);}clearInterval(timer);clearTimeout(ht);setInsightLoading(false);};
   useEffect(()=>{if(insightLoadedRef.current)return;insightLoadedRef.current=true;storageGet("wh_insight_today",null).then(saved=>{if(saved&&saved.date===todayDS()&&saved.text&&saved.text.length>20)setInsight(saved.text);else setInsight("Tap Refresh for your check-in insight.");});},[]);
   const doPatterns=async()=>{setPatLoading(true);setPatResult("");setError("");try{const txt=await askCoach([{role:"user",content:"Look at my mood and activity data. What patterns do you see? Be specific and personal."}],buildCtx());setPatResult(txt);}catch(e){setError(e.message);}setPatLoading(false);};
   const [chatTasksAdded,setChatTasksAdded]=useState([]);
-  const sendMsg=async(override)=>{const msg=override||input.trim();if(!msg||chatLoading)return;setInput("");setError("");if(!override){const ht=extractHashTasks(msg);if(ht.length){setTasks(prev=>[...prev,...ht.map(title=>({id:uid(),title,priority:"A",projectId:"misc",addedDate:todayDS(),doneDate:null,today:true}))]);setChatTasksAdded(ht);setTimeout(()=>setChatTasksAdded([]),4000);}}const newHist=[...chatHist,{role:"user",content:msg}];setChatHist(newHist);setChatLoading(true);try{const reply=await askCoach(newHist,buildCtx());const updated=[...newHist,{role:"assistant",content:reply}];setChatHist(updated.length>20?updated.slice(-20):updated);const lowerMsg=msg.toLowerCase();const memTrigger=lowerMsg.includes("save that")||lowerMsg.includes("remember that")||lowerMsg.includes("save it")||lowerMsg.includes("remind me")||lowerMsg.includes("remember this")||lowerMsg.includes("don't forget");if(memTrigger){try{const memPrompt=`The user said "${msg}". Extract ONE concise memory to save (max 20 words). Focus on preferences, boundaries, health updates, decisions, or things to remember. If nothing worth saving, respond with just "SKIP". Respond with only the memory text or SKIP.`;const memR=await askCoach([{role:"user",content:memPrompt}],buildCtx());if(memR&&!memR.includes("SKIP")&&memR.trim().length>5){const newMem=splitCoachTasks(memR).clean;const updated2={insights:[...(coachMemory?.insights||[]),newMem],lastUpdated:todayDS()};onUpdateMemory(updated2);}}catch(e){}}}catch(e){if(e.message.includes("Rate limit")||e.message.includes("429")||e.message.includes("Network"))setError("Coach is offline — try again later.");else setChatHist(h=>[...h,{role:"assistant",content:"Sorry: "+e.message}]);}setChatLoading(false);};
+  const sendMsg=async(override)=>{const msg=override||input.trim();if(!msg||chatLoading)return;setInput("");setError("");if(!override){const ht=extractHashTasks(msg);if(ht.length){setTasks(prev=>[...prev,...ht.map(title=>({id:uid(),title,priority:"A",projectId:"misc",addedDate:todayDS(),doneDate:null,today:true}))]);setChatTasksAdded(ht);setTimeout(()=>setChatTasksAdded([]),4000);}}const newHist=[...chatHist,{role:"user",content:msg}];setChatHist(newHist);setChatLoading(true);try{const reply=await askCoach(newHist,buildCtx());const updated=[...newHist,{role:"assistant",content:reply}];setChatHist(updated.length>20?updated.slice(-20):updated);const lowerMsg=msg.toLowerCase();const memTrigger=lowerMsg.includes("save that")||lowerMsg.includes("remember that")||lowerMsg.includes("save it")||lowerMsg.includes("remind me")||lowerMsg.includes("remember this")||lowerMsg.includes("don't forget");if(memTrigger){try{const memPrompt=`The user said "${msg}". Extract ONE concise memory to save (max 20 words). Focus on preferences, boundaries, health updates, decisions, or things to remember. If nothing worth saving, respond with just "SKIP". Respond with only the memory text or SKIP.`;const memR=await askCoach([{role:"user",content:memPrompt}],buildCtx());if(memR&&!memR.includes("SKIP")&&memR.trim().length>5){const newMem=splitCoachTasks(memR).clean;const updated2={insights:[...(coachMemory?.insights||[]),newMem],lastUpdated:todayDS()};onUpdateMemory(updated2);}}catch(e){}}}catch(e){if(e.message.includes("Rate limit")||e.message.includes("429")||e.message.includes("Network"))setError("Kate is offline — try again later.");else setChatHist(h=>[...h,{role:"assistant",content:"Sorry: "+e.message}]);}setChatLoading(false);};
   return(<div>
     <PendingCatchupBanner coachLogs={coachLogs||{}} onSaveLog={onSaveLog||(()=>{})}/>
     {(()=>{const type=getCheckInType();const showCheckin=type&&!checkInDismissed;return(<>
@@ -1054,7 +1059,7 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
     <CoachMemoryPanel coachMemory={coachMemory} onUpdateMemory={onUpdateMemory}/>
     <div style={S.card}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:chatCollapsed?0:12,cursor:"pointer"}} onClick={()=>setChatCollapsed(v=>!v)}>
-        <div style={{fontFamily:"Georgia,serif",fontSize:"1rem",fontWeight:600}}>💬 Ask Coach anything</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:"1rem",fontWeight:600}}>💬 Ask Kate anything</div>
         <div style={{display:"flex",gap:8,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
           {!chatCollapsed&&<button onClick={doPatterns} disabled={patLoading} style={{...btn("ghost"),padding:"3px 10px",fontSize:".76rem"}}>{patLoading?"…":"📊 Patterns"}</button>}
           {!chatCollapsed&&chatHist.length>0&&<button onClick={()=>{setChatHist([]);if(onSaveLog)onSaveLog(todayDS(),"chat",[]);}} style={{fontSize:".72rem",color:C.text3,background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Clear</button>}
@@ -1066,7 +1071,7 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
         <span style={S.secLbl}>Quick Prompts</span>
         <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>{[["💪 Fitness","fitness"],["🧠 Procrastination","procrastination"],["🌅 Drifting","retired"],["🚶 Get Moving","moving"],["🎯 Focus Today","focus"],["🗓 Routine","routine"],["📊 Mood & Activity","moodact"]].map(([label,key])=><button key={key} onClick={()=>sendMsg(QPS[key])} disabled={chatLoading} style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:C.bg2,fontSize:".79rem",color:C.text2,cursor:"pointer"}}>{label}</button>)}</div>
         <div ref={msgsRef} style={{minHeight:180,maxHeight:400,overflowY:"auto",border:`1px solid ${C.border}`,borderRadius:8,background:C.bg,padding:"12px 14px 12px 20px",marginBottom:10,display:"flex",flexDirection:"column",gap:8}}>
-          {chatHist.length===0&&<div style={{alignSelf:"flex-start",maxWidth:"86%",padding:"9px 13px",borderRadius:"10px 10px 10px 2px",background:C.card,border:`1px solid ${C.border}`,fontSize:".85rem",lineHeight:1.52}}>Hi! I'm your wellness coach. Use a quick prompt above, or ask me anything.</div>}
+          {chatHist.length===0&&<div style={{alignSelf:"flex-start",maxWidth:"86%",padding:"9px 13px",borderRadius:"10px 10px 10px 2px",background:C.card,border:`1px solid ${C.border}`,fontSize:".85rem",lineHeight:1.52}}>Hi, I'm Kate. Use a quick prompt above, or tell me what's on your mind.</div>}
           {chatHist.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",width:"100%"}}><div style={{maxWidth:"84%",padding:"9px 13px",fontSize:".85rem",lineHeight:1.52,whiteSpace:"pre-wrap",wordBreak:"break-word",borderRadius:m.role==="user"?"10px 10px 2px 10px":"10px 10px 10px 2px",background:m.role==="user"?C.accent:C.card,color:m.role==="user"?"#fff":C.text,border:m.role==="user"?"none":`1px solid ${C.border}`}}>{m.role==="assistant"?splitCoachTasks(m.content).clean:m.content}{m.role==="assistant"&&<CoachTaskButtons content={m.content} tasks={tasks} setTasks={setTasks}/>}</div></div>)}
           {chatLoading&&<div style={{alignSelf:"flex-start",padding:"9px 13px",borderRadius:"10px 10px 10px 2px",background:C.card,border:`1px solid ${C.border}`,fontSize:".85rem",color:C.text3,fontStyle:"italic"}}>Thinking…</div>}
         </div>
@@ -1074,7 +1079,7 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
         {patResult&&<div style={{padding:"12px 14px",background:C.bg2,borderRadius:8,border:`1px solid ${C.border}`,fontSize:".85rem",lineHeight:1.6,marginBottom:10,color:C.text,whiteSpace:"pre-wrap"}}>{splitCoachTasks(patResult).clean}<CoachTaskButtons content={patResult} tasks={tasks} setTasks={setTasks}/></div>}
       </div>}
       <div style={{display:"flex",gap:8,marginTop:chatCollapsed?0:8}}>
-        <textarea style={{...S.input,flex:1,minHeight:44,maxHeight:120,resize:"none",lineHeight:1.4}} value={input} onChange={e=>setInput(e.target.value)} placeholder="Ask your coach anything…" rows={2}/>
+        <textarea style={{...S.input,flex:1,minHeight:44,maxHeight:120,resize:"none",lineHeight:1.4}} value={input} onChange={e=>setInput(e.target.value)} placeholder="Ask Kate anything…" rows={2}/>
         <button style={btn("primary")} onClick={()=>{setChatCollapsed(false);sendMsg();}} disabled={chatLoading||!input.trim()}>Send</button>
       </div>
     </div>
@@ -1098,8 +1103,8 @@ function SettingsModal({onClose}){
       <div style={{fontSize:".75rem",color:C.text3,marginTop:8}}>Get your key at <strong>console.anthropic.com</strong> → API Keys. Never share it.</div>
     </div>
     <div style={{marginBottom:16}}>
-      <label style={{display:"block",fontSize:".82rem",fontWeight:600,color:C.text2,marginBottom:6}}>🙋 About me (for Coach)</label>
-      <textarea style={{...S.textarea,minHeight:120,fontSize:"16px"}} value={about} onChange={e=>{setAbout(e.target.value);setSaved(false);}} placeholder="Who you are, what motivates you, health notes, hobbies — anything Coach should always know."/>
+      <label style={{display:"block",fontSize:".82rem",fontWeight:600,color:C.text2,marginBottom:6}}>🙋 About me (for Kate)</label>
+      <textarea style={{...S.textarea,minHeight:120,fontSize:"16px"}} value={about} onChange={e=>{setAbout(e.target.value);setSaved(false);}} placeholder="Who you are, what motivates you, health notes, hobbies — anything Kate should always know."/>
       <div style={{fontSize:".72rem",color:C.text3,marginTop:4}}>Kept on this device and included in your 💾 backups.</div>
     </div>
     <div style={{display:"flex",justifyContent:"flex-end",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
@@ -1116,10 +1121,10 @@ function ExportModal({moodData,actData,tasks,projects,moodWords,actWords,coachLo
   const [showPaste,setShowPaste]=React.useState(false);
   // Safety check before a restore replaces everything: confirm it's a Mizmo backup and show what's in it
   const confirmRestore=d=>{
-    if(!d||typeof d!=="object"||!Array.isArray(d.tasks)){alert("❌ This doesn't look like a Mizmo Go! backup. Nothing was changed.");return false;}
+    if(!d||typeof d!=="object"||!Array.isArray(d.tasks)){alert("❌ This doesn't look like a MoGo backup. Nothing was changed.");return false;}
     let when="an unknown date";if(d.exportDate){const dt=new Date(d.exportDate);if(!isNaN(dt))when=dt.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});}
     const bActive=d.tasks.filter(t=>!t.doneDate).length;const curActive=tasks.filter(t=>!t.doneDate).length;
-    const memNote=d.coachMemory&&Array.isArray(d.coachMemory.insights)?`\n• ${d.coachMemory.insights.length} Coach memories`:"\n• No Coach memories in this backup (your current ones will be kept)";
+    const memNote=d.coachMemory&&Array.isArray(d.coachMemory.insights)?`\n• ${d.coachMemory.insights.length} Kate memories`:"\n• No Kate memories in this backup (your current ones will be kept)";
     return window.confirm(`Restore this backup?\n\nBackup from: ${when}\n• ${bActive} active tasks (${d.tasks.length} total)${memNote}\n\nThe app currently has ${curActive} active tasks (${tasks.length} total).\n\nRestoring REPLACES what's in the app now.`);
   };
   const handlePasteImport=()=>{let d;try{d=JSON.parse(pasteVal);}catch{alert("❌ Could not read that JSON. Make sure you copied the full export text.");return;}if(!confirmRestore(d))return;onImport(d);onClose();alert("✅ Data imported!");};
@@ -1129,12 +1134,12 @@ function ExportModal({moodData,actData,tasks,projects,moodWords,actWords,coachLo
     <div style={{fontSize:".78rem",color:C.text3,marginBottom:12}}>Copy this JSON to back up all your data. Use Restore to bring it back on any device.</div>
     <textarea id="export-json-ta" style={{...S.textarea,fontFamily:"monospace",fontSize:".72rem",minHeight:240,background:C.bg2}} readOnly value={exportStr} onFocus={e=>{e.target.select();}}/>
     <div style={{fontSize:".75rem",color:C.text3,marginTop:4,textAlign:"center",marginBottom:6}}>Tap in the box above to select all, then copy</div>
-    <div style={{fontSize:".74rem",color:C.text3,textAlign:"center",marginBottom:12,fontStyle:"italic"}}>🔑 Your Coach API key is not included in backups — keep your own copy.</div>
+    <div style={{fontSize:".74rem",color:C.text3,textAlign:"center",marginBottom:12,fontStyle:"italic"}}>🔑 Your Kate API key is not included in backups — keep your own copy.</div>
     <input ref={importRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImport}/>
     <div style={{display:"flex",justifyContent:"space-between",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={()=>importRef.current.click()}>📂 Restore from file</button><button style={btn("ghost")} onClick={()=>setShowPaste(p=>!p)}>📋 Paste JSON</button>{showPaste&&<div style={{marginTop:8,padding:8,background:C.bg2,borderRadius:8}}><textarea style={{...S.textarea,fontFamily:"monospace",fontSize:".72rem",minHeight:80,background:C.bg}} placeholder="Paste your JSON backup here..." value={pasteVal} onChange={e=>setPasteVal(e.target.value)}/><button style={{...btn("primary"),marginTop:6,width:"100%"}} onClick={handlePasteImport}>✅ Import Pasted JSON</button></div>}
       <div style={{display:"flex",gap:8}}>
-        <button style={btn("ghost")} onClick={()=>{const today=new Date();const mm=String(today.getMonth()+1).padStart(2,"0");const dd=String(today.getDate()).padStart(2,"0");const hh=String(today.getHours()).padStart(2,"0");const mn=String(today.getMinutes()).padStart(2,"0");const fname=`Mizmo_Go_${mm}-${dd}_${hh}${mn}.json`;const blob=new Blob([exportStr],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=fname;a.click();URL.revokeObjectURL(url);}}>⬇️ Download Backup</button><button style={btn("primary")} onClick={()=>{const ta=document.getElementById("export-json-ta");if(ta){ta.select();ta.setSelectionRange(0,99999);}try{document.execCommand("copy");alert("Copied!");}catch(e){alert("Tap in the text box, then Select All and Copy.");}}}>Select All & Copy</button>
+        <button style={btn("ghost")} onClick={()=>{const today=new Date();const mm=String(today.getMonth()+1).padStart(2,"0");const dd=String(today.getDate()).padStart(2,"0");const hh=String(today.getHours()).padStart(2,"0");const mn=String(today.getMinutes()).padStart(2,"0");const fname=`MoGo_${mm}-${dd}_${hh}${mn}.json`;const blob=new Blob([exportStr],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=fname;a.click();URL.revokeObjectURL(url);}}>⬇️ Download Backup</button><button style={btn("primary")} onClick={()=>{const ta=document.getElementById("export-json-ta");if(ta){ta.select();ta.setSelectionRange(0,99999);}try{document.execCommand("copy");alert("Copied!");}catch(e){alert("Tap in the text box, then Select All and Copy.");}}}>Select All & Copy</button>
         <button style={btn("ghost")} onClick={onClose}>Close</button>
       </div>
     </div>
@@ -1180,13 +1185,13 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
 
   const streak=useMemo(()=>{let s=0;const d=new Date();const tk=toDS(d.getFullYear(),d.getMonth(),d.getDate());const hasData=k=>!!(moodData[k]||actData[k]||(coachLogs[k]&&coachLogs[k].length>0));if(!hasData(tk))d.setDate(d.getDate()-1);for(let i=0;i<365;i++){const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(hasData(k)){s++;d.setDate(d.getDate()-1);}else break;}return s;},[moodData,actData,coachLogs]);
 
-  const TABS=[["coach","💬 Coach"],["todo","✅ Today"],["mood","📅 Calendar"],["completed","📋 Done"]];
+  const TABS=[["coach","💬 Kate"],["todo","✅ Today"],["mood","📅 Calendar"],["completed","📋 Done"]];
 
-  if(!loaded)return(<div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}><div style={{textAlign:"center",color:C.text3}}><div style={{fontSize:"2rem",marginBottom:10}}>🌿</div><div style={{fontFamily:"Georgia,serif",fontSize:"1rem"}}>Loading Mizmo Go!…</div></div></div>);
+  if(!loaded)return(<div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh"}}><div style={{textAlign:"center",color:C.text3}}><div style={{fontSize:"2rem",marginBottom:10}}>🌿</div><div style={{fontFamily:"Georgia,serif",fontSize:"1rem"}}>Loading MoGo…</div></div></div>);
 
   return(<div style={S.app}>
     <header style={S.hdr}>
-      <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:700,color:C.accent}}>Mizmo <em style={{color:C.text,fontWeight:400}}>Go!</em></div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:700,color:C.accent}}>Mo<em style={{color:C.text,fontWeight:400}}>Go</em></div>
       <div style={{display:"flex",gap:6,alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:4,background:C.bg2,border:`1px solid ${C.border}`,borderRadius:20,padding:"3px 10px",fontSize:".75rem",fontWeight:600,color:C.accent}}>🔥 {streak} day streak</div>
         <button onClick={()=>{setShowSearch(v=>!v);setSearchQ("");}} style={{...S.btnIcon,fontSize:".72rem",padding:"3px 8px",width:"auto",color:showSearch?C.accent:C.text3,background:showSearch?C.bg2:"transparent"}} title="Search tasks">🔍</button>
