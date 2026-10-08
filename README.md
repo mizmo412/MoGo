@@ -1,2 +1,2 @@
-# mizmo-go
-Mizmo Go!  No more procrastinating! 
+# MoGO!
+MoGo!  No more procrastinating! 
