@@ -32,7 +32,11 @@ const MONTHS_SHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct",
 const DOWS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const uid=()=>Math.random().toString(36).slice(2,9);
 const isAllCaps=t=>t.title&&t.title===t.title.toUpperCase()&&t.title.replace(/[^a-zA-Z]/g,"").length>0;
-const capsSort=(a,b)=>{const ac=isAllCaps(a),bc=isAllCaps(b);if(ac&&!bc)return -1;if(!ac&&bc)return 1;return 0;};
+// ALL CAPS tasks float to the top unless the user has dragged them down (capsDemoted)
+const capsTop=t=>isAllCaps(t)&&!t.capsDemoted;
+// After a drag: a caps task with any normal task above it is "demoted"; dragged back to the top, it's promoted again
+const markCapsOrder=arr=>{let seenNormal=false;const m={};arr.forEach(t=>{if(isAllCaps(t)){m[t.id]=seenNormal;}else seenNormal=true;});return m;};
+const capsSort=(a,b)=>{const ac=capsTop(a),bc=capsTop(b);if(ac&&!bc)return -1;if(!ac&&bc)return 1;return 0;};
 const toDS=(y,m,d)=>`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
 const tomorrowDS=()=>{const d=new Date();d.setDate(d.getDate()+1);return toDS(d.getFullYear(),d.getMonth(),d.getDate());};
 const todayDS=()=>{const n=new Date();return toDS(n.getFullYear(),n.getMonth(),n.getDate());};
@@ -289,10 +293,13 @@ function MoodModal({dateKey,moodData,moodWords,tasks,coachLogs,onSave,onClose,on
 
 function WordModal({onSave,onClose}){const [val,setVal]=useState("");return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:320}} onClick={e=>e.stopPropagation()}><div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:14}}>Add a Word</div><input style={S.input} value={val} onChange={e=>setVal(e.target.value)} placeholder="e.g. Grateful, Restless…" maxLength={30} autoFocus onKeyDown={e=>e.key==="Enter"&&val.trim()&&onSave(val.trim())}/><div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}><button style={btn("ghost")} onClick={onClose}>Cancel</button><button style={btn("primary")} onClick={()=>val.trim()&&onSave(val.trim())}>Add</button></div></div></div>);}
 
-function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,onDelete}){
+function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,onDelete,lastDone}){
   const [title,setTitle]=useState(task?.title||"");const [notes,setNotes]=useState(task?.notes||"");const [pri,setPri]=useState(task?.priority||"A");const [schedDate,setSchedDate]=useState(task?.schedDate||"");const [projId,setProjId]=useState(task?.projectId||defaultProjectId||"misc");
   const [waiting,setWaiting]=useState(!!task?.waiting);const [waitingOn,setWaitingOn]=useState(task?.waitingOn||"");
-  const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [markComplete,setMarkComplete]=useState(false);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const [recurMode,setRecurMode]=useState(task?.recurMode||"flex");const progressLog=task?.progressLog||[];
+  const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [markComplete,setMarkComplete]=useState(false);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const [recurMode,setRecurMode]=useState(task?.recurMode||"flex");const [recalcNote,setRecalcNote]=useState("");
+  // Changing how often a task repeats recalculates the next date from the last time it was done
+  const recurFirst=useRef(true);
+  useEffect(()=>{if(recurFirst.current){recurFirst.current=false;return;}if(recur&&!isManualRecur(recur)&&lastDone){setDueDate(addInterval(lastDone,recur));setRecalcNote(`Recalculated from last done: ${fmtDueDate(lastDone)}`);}else setRecalcNote("");},[recur]);const progressLog=task?.progressLog||[];
   return(<div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:16}}>{task?"Edit Task":"Add Task"}</div>
     <FormRow label="Task Title"><input style={S.input} value={title} onChange={e=>setTitle(e.target.value)} placeholder="What needs to be done?" autoFocus/></FormRow>
@@ -314,12 +321,13 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
     </FormRow>
     <FormRow label={recur?"Next date":"Due date (get it done by)"}>
       <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-        <input type="date" style={{...S.input,flex:"0 0 auto",width:140,fontSize:".84rem",padding:"6px 8px"}} value={dueDate} onChange={e=>setDueDate(e.target.value)}/>
-        {dueDate&&<button onClick={()=>setDueDate("")} style={{padding:"4px 8px",fontSize:".8rem",background:"none",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",color:C.text3,flexShrink:0}} title="Clear due date">✕ Clear</button>}
+        <input type="date" style={{...S.input,flex:"0 0 auto",width:140,fontSize:".84rem",padding:"6px 8px"}} value={dueDate} onChange={e=>{setDueDate(e.target.value);setRecalcNote("");}}/>
+        {dueDate&&<button onClick={()=>{setDueDate("");setRecalcNote("");}} style={{padding:"4px 8px",fontSize:".8rem",background:"none",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",color:C.text3,flexShrink:0}} title="Clear due date">✕ Clear</button>}
       </div>
       <div style={{display:"flex",gap:4,alignItems:"center"}}>
         {recur===""?<select style={{...S.select,flex:1,fontSize:".84rem",padding:"6px 8px"}} value={recur} onChange={e=>setRecur(e.target.value)}><option value="">No repeat</option><option value="custom:1:days">Every…</option><option value="custom:0:manual">Manual date</option></select>:<div style={{display:"flex",gap:4,flex:1,alignItems:"center"}}><button onClick={()=>setRecur("")} style={{padding:"4px 8px",fontSize:".8rem",background:"none",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",color:C.text3}}>✕</button><input type="number" min="1" max="999" style={{...S.input,width:60,fontSize:".84rem",padding:"6px 8px"}} value={recur.split(":")[1]||""} onFocus={e=>e.target.select()} onChange={e=>{const parts=recur.split(":");setRecur(`custom:${e.target.value}:${parts[2]||"days"}`);}} placeholder="1"/><select style={{...S.select,flex:1,fontSize:".84rem",padding:"6px 8px"}} value={recur.split(":")[2]||"days"} onChange={e=>{const parts=recur.split(":");setRecur(`custom:${parts[1]||1}:${e.target.value}`)}}><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option><option value="years">years</option><option value="manual">manual date</option></select></div>}
       </div>
+      {recalcNote&&<div style={{fontSize:".74rem",color:"#2d6b2d",marginTop:4,fontStyle:"italic"}}>↻ {recalcNote}</div>}
       {recur&&!isManualRecur(recur)&&<div style={{display:"flex",gap:6,alignItems:"center",marginTop:6}}><span style={{fontSize:".8rem",color:C.text2,flexShrink:0}}>If I miss it:</span><select style={{...S.select,flex:1,fontSize:".84rem",padding:"6px 8px"}} value={recurMode} onChange={e=>setRecurMode(e.target.value)}><option value="flex">Keep it until done (flexible)</option><option value="fixed">Skip it — fixed schedule</option></select></div>}
       {recur&&isManualRecur(recur)&&<div style={{fontSize:".74rem",color:C.text3,marginTop:4,fontStyle:"italic"}}>When you complete it, you'll be asked for the next date.</div>}
     </FormRow>
@@ -367,8 +375,7 @@ function TaskRow({task,onComplete,onEdit,dragHandleProps,onSnooze,isParked}){
         <span style={{fontSize:".87rem",lineHeight:1.35,color:isWaiting?C.text3:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>onEdit&&onEdit(task)}>{task.title}</span>
         {isWaiting&&<span style={{fontSize:".8rem"}}>⏸️</span>}
         {task.inProgress&&!isWaiting&&<span style={{fontSize:".8rem"}}>⏳</span>}
-        {task.trivial&&<span style={{fontSize:".8rem"}} title="Trivial">🧹</span>}
-        {isStale(task)&&!isParked&&<span onClick={e=>{e.stopPropagation();onSnooze&&onSnooze(task.id);}} style={{fontSize:".75rem",cursor:"pointer",userSelect:"none"}} title="Snooze for 10 days">💤</span>}
+        {task.trivial&&<span style={{fontSize:".8rem"}} title="Trivial">🧹</span>}{task.returnOn&&!task.today&&<span style={{fontSize:".66rem",color:C.text3,border:`1px solid ${C.border}`,borderRadius:8,padding:"0 5px"}} title="Comes back to Today">↻ {task.returnOn<=tomorrowDS()?"Tmrw":fmtDueDate(task.returnOn)}</span>}
         {schedOf(task)&&<DueBadge dueDate={task.schedDate} sched/>}{task.dueDate&&<DueBadge dueDate={task.dueDate} calculatedDate={task.calculatedDate}/>}
       </div>
       {task.notes&&!task.waitingOn&&!task.inProgress&&<div style={{fontSize:".77rem",color:C.text3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.notes}</div>}
@@ -428,7 +435,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
       ghost.style.cssText=`position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.75;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.18);border-radius:8px;z-index:9999;pointer-events:none;`;
       document.body.appendChild(ghost);
       r.ghost=ghost;
-      el.style.opacity='0.3';
+      el.style.opacity='0.3';r.dragEl=el;
     };
 
     const handleTouchMove=(e)=>{
@@ -455,7 +462,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
 
     const handleTouchEnd=()=>{
       const r=stateRef.current;
-      if(r.idx!==null&&r.rowEls[r.idx])r.rowEls[r.idx].style.opacity='1';
+      if(r.dragEl){r.dragEl.style.opacity='1';r.dragEl=null;}
       if(r.ghost){r.ghost.remove();r.ghost=null;}
       r.idx=null;
     };
@@ -494,20 +501,21 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
   </div>);
 }
 
-function TodoTab({tasks,projects,setTasks,setProjects}){
+function TodoTab({tasks,projects,setTasks,setProjects,openTaskId,onOpenedTask}){
   const [showTask,setShowTask]=useState(false);const [editTask,setEditTask]=useState(null);const [showProj,setShowProj]=useState(false);const [collapsed,setCollapsed]=useState({__recur__:true,__completedProjs__:true});const [confirm,setConfirm]=useState(null);const [addingTo,setAddingTo]=useState(null);const [addingToToday,setAddingToToday]=useState(false);const [progressPrompt,setProgressPrompt]=useState(null);const [nextLater,setNextLater]=useState([]);
   const active=tasks.filter(t=>!t.doneDate);
+  useEffect(()=>{if(!openTaskId)return;const t=tasks.find(x=>x.id===openTaskId);if(t){setEditTask(t);setAddingTo(null);setAddingToToday(false);setShowTask(true);}if(onOpenedTask)onOpenedTask();},[openTaskId]);
   const _todayActive=active.filter(t=>t.today).filter(t=>t.progressedOn!==todayDS()).sort(capsSort);
   const _todayProgressed=active.filter(t=>t.today&&t.progressedOn===todayDS());
   const _todayDone=tasks.filter(t=>t.completedOn===todayDS()&&t.doneDate);
   const todayTasks=[..._todayActive,..._todayProgressed,..._todayDone];
-  const saveTask=data=>{const isToday=addingToToday;const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();const shouldBeToday=(()=>{if(!isToday)return false;if(data.priority==="A"&&data.projectId==="misc")return true;if(data.dueDate){const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);return data.dueDate<=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());}return false;})();setTasks(prev=>{const updated=editTask?prev.map(t=>{if(t.id!==editTask.id)return t;const hadProgress=t.progressLog?.length||0;const hasNewProgress=data.progressLog?.length>hadProgress;const setProgressed=data.inProgress&&hasNewProgress?{progressedOn:todayDS()}:{};return{...t,...data,...setProgressed,completedTime:data.doneDate?compTime:t.completedTime};}):[...prev,{id:uid(),...data,addedDate:todayDS(),doneDate:data.doneDate||null,today:shouldBeToday?true:undefined}];// If completing a recurring task, create next instance
+  const saveTask=data=>{const isToday=addingToToday;const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();const shouldBeToday=(()=>{if(!isToday)return false;if(data.priority==="A"&&data.projectId==="misc")return true;if(data.dueDate){const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);return data.dueDate<=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());}return false;})();setTasks(prev=>{const updated=editTask?prev.map(t=>{if(t.id!==editTask.id)return t;const hadProgress=t.progressLog?.length||0;const hasNewProgress=data.progressLog?.length>hadProgress;const setProgressed=data.inProgress&&hasNewProgress?{progressedOn:todayDS()}:{};const futureSched=data.priority==="S"&&data.schedDate&&data.schedDate>todayDS()?{today:undefined,returnOn:undefined}:{};return{...t,...data,...setProgressed,...futureSched,completedTime:data.doneDate?compTime:t.completedTime};}):[...prev,{id:uid(),...data,addedDate:todayDS(),doneDate:data.doneDate||null,today:shouldBeToday?true:undefined}];// If completing a recurring task, create next instance
 if(editTask&&data.doneDate&&(data.recur||editTask.recur)){const next=spawnNext({...editTask,...data});if(next)return[...updated,next];}return updated;});setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);};
   const completeTask=id=>{const task=tasks.find(t=>t.id===id);if(task?.inProgress){if(task.progressedOn===todayDS()){// Toggle off — uncheck progress for today
 setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:undefined}:x));return;}setProgressPrompt(task);return;}else{setTasks(prev=>{const updated=prev.map(x=>x.id===id?{...x,doneDate:task?.trivial?"trivial":todayDS(),completedOn:todayDS(),completedTime:(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})(),today:task?.trivial?x.today:undefined}:x);const origTask=prev.find(x=>x.id===id);const next=spawnNext(origTask);if(next)return[...updated,next];return updated;});}};
   const handleProgressLog=(id,note,complete,followUpDate)=>{const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();setTasks(prev=>{let nextT=null;const upd=prev.map(x=>{if(x.id!==id)return x;const newLog=[...(x.progressLog||[]),{date:todayDS(),note:note.trim()}];if(complete){const doneX={...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:compTime,inProgress:undefined,progressLog:newLog};nextT=spawnNext({...x,progressLog:newLog});return doneX;}if(followUpDate){return{...x,progressLog:newLog,dueDate:followUpDate,waiting:true,today:true,progressedOn:todayDS(),onDeck:true};}return{...x,progressLog:newLog,today:true,progressedOn:todayDS()};});return nextT?[...upd,nextT]:upd;});setProgressPrompt(null);};
-  const removeFromToday=id=>{const task=tasks.find(t=>t.id===id);if(task?.recur){setTasks(prev=>prev.map(x=>x.id===id?{...x,today:undefined,dueDate:tomorrowDS()}:x));}else{setTasks(prev=>prev.map(x=>x.id===id?{...x,today:undefined}:x));}};
-  const addToToday=id=>setTasks(tasks.map(x=>x.id===id?{...x,today:true,onDeck:undefined}:x));
+  const removeFromToday=id=>{const task=tasks.find(t=>t.id===id);if(task?.recur){setTasks(prev=>prev.map(x=>x.id===id?{...x,today:undefined,dueDate:tomorrowDS()}:x));}else{setTasks(prev=>prev.map(x=>x.id===id?{...x,today:undefined,returnOn:tomorrowDS()}:x));}};
+  const addToToday=id=>{const t=tasks.find(x=>x.id===id);setTasks(prev=>prev.map(x=>x.id===id?{...x,today:true,onDeck:undefined,returnOn:undefined}:x));if(t&&projects.find(p=>p.id===t.projectId&&p.parked))setProjects(prev=>prev.map(p=>p.id===t.projectId?{...p,parked:false}:p));};
   const reorderWaiting=(newArr)=>{
     setTasks(prev=>{
       const ids=new Set(newArr.map(t=>t.id));
@@ -528,14 +536,21 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
   };
   const reorderToday=(newArr)=>{
     setTasks(prev=>{
-      const ids=new Set(newArr.map(t=>t.id));
+      const ids=new Set(newArr.map(t=>t.id));const dm=markCapsOrder(newArr);
+      const fresh=newArr.map(t=>{const cur=prev.find(x=>x.id===t.id)||t;return t.id in dm?{...cur,capsDemoted:dm[t.id]||undefined}:cur;});
       const others=prev.filter(t=>!ids.has(t.id));
-      return[...newArr,...others];
+      return[...fresh,...others];
     });
   };
   const doDelete=()=>{if(!confirm)return;if(confirm.type==="task")setTasks(tasks.filter(t=>t.id!==confirm.id));else{setProjects(projects.filter(p=>p.id!==confirm.id));setTasks(tasks.filter(t=>t.projectId!==confirm.id));}setConfirm(null);};
   const addProject=name=>{setProjects([...projects,{id:uid(),name}]);setShowProj(false);};
-  const moveProject=(idx,dir)=>{const next=idx+dir;if(next<0||next>=projects.length)return;const arr=[...projects];[arr[idx],arr[next]]=[arr[next],arr[idx]];setProjects(arr);};
+  // Project order: open projects first, then parked (each keeps its own order); completed live in their own section
+  const visibleProjs=[...projects.filter(p=>!p.completed&&!p.parked),...projects.filter(p=>!p.completed&&p.parked)];
+  const reorderProjects=newVisible=>setProjects(prev=>{const byId=Object.fromEntries(prev.map(p=>[p.id,p]));return[...newVisible.map(p=>byId[p.id]||p),...prev.filter(p=>p.completed)];});
+  const reorderProjRef=useRef(reorderProjects);reorderProjRef.current=reorderProjects;
+  const projContainerRef=useRef(null);
+  const projTouch=useRef({idx:null,ghost:null,startY:0,rowEls:[],handleEls:[],list:[]});
+  projTouch.current.list=visibleProjs;
   const priLabel={A:"Available",B:"Soon",S:"Scheduled",C:"Someday"};const priCol={A:{bg:"#fde8e7",color:C.pa},B:{bg:"#fef3e2",color:C.pb},S:{bg:"#e3edf7",color:"#3a6a98"},C:{bg:"#e8f4e6",color:C.pc}};
   const dragRef=useRef({idx:null,projId:null,pri:null});
   const todayDragRef=useRef({idx:null});
@@ -560,7 +575,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       const rect=el.getBoundingClientRect();
       const ghost=el.cloneNode(true);
       ghost.style.cssText=`position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.75;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.18);border-radius:8px;z-index:9999;pointer-events:none;`;
-      document.body.appendChild(ghost);s.ghost=ghost;el.style.opacity='0.3';
+      document.body.appendChild(ghost);s.ghost=ghost;el.style.opacity='0.3';s.dragEl=el;
     };
     const onMove=(e)=>{
       if(s.idx===null||!s.ghost)return;
@@ -578,7 +593,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       }
     };
     const onEnd=()=>{
-      if(s.idx!==null&&s.rowEls[s.idx])s.rowEls[s.idx].style.opacity='1';
+      if(s.dragEl){s.dragEl.style.opacity='1';s.dragEl=null;}
       if(s.ghost){s.ghost.remove();s.ghost=null;}s.idx=null;
     };
     const activateToday=(e)=>{onStart(e);if(todayTouchState.current.idx!==null){container.addEventListener('touchmove',onMove,{passive:false});}};
@@ -601,7 +616,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       const rect=el.getBoundingClientRect();
       const ghost=el.cloneNode(true);
       ghost.style.cssText=`position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.75;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.18);border-radius:8px;z-index:9999;pointer-events:none;`;
-      document.body.appendChild(ghost);s.ghost=ghost;el.style.opacity='0.3';
+      document.body.appendChild(ghost);s.ghost=ghost;el.style.opacity='0.3';s.dragEl=el;
     };
     const onMove=(e)=>{
       if(s.idx===null||!s.ghost)return;
@@ -619,7 +634,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       }
     };
     const onEnd=()=>{
-      if(s.idx!==null&&s.rowEls[s.idx])s.rowEls[s.idx].style.opacity='1';
+      if(s.dragEl){s.dragEl.style.opacity='1';s.dragEl=null;}
       if(s.ghost){s.ghost.remove();s.ghost=null;}s.idx=null;
     };
     const activateDeck=(e)=>{onStart(e);if(onDeckTouchState.current.idx!==null){container.addEventListener('touchmove',onMove,{passive:false});}};
@@ -628,8 +643,26 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
     container.addEventListener('touchend',deactivateDeck,{passive:true});
     return()=>{container.removeEventListener('touchstart',activateDeck);container.removeEventListener('touchmove',onMove);container.removeEventListener('touchend',deactivateDeck);};
   },[]);
-  const reorderTasks=(projId,pri,newArr)=>{
+  useEffect(()=>{
+    const container=projContainerRef.current;if(!container)return;
+    const s=projTouch.current;
+    const onStart=e=>{const h=s.handleEls.find(h=>h&&h.contains(e.target));if(!h)return;const idx=s.handleEls.indexOf(h);if(idx===-1||idx>=s.list.length)return;const el=s.rowEls[idx];if(!el)return;
+      s.idx=idx;s.startY=e.touches[0].clientY;const rect=el.getBoundingClientRect();const ghost=el.firstElementChild.cloneNode(true);
+      ghost.style.cssText=`position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.85;background:#fff;box-shadow:0 4px 16px rgba(0,0,0,.18);border-radius:10px;z-index:9999;pointer-events:none;`;
+      document.body.appendChild(ghost);s.ghost=ghost;el.style.opacity='0.3';s.dragEl=el;};
+    const onMove=e=>{if(s.idx===null||!s.ghost)return;e.preventDefault();const y=e.touches[0].clientY;s.ghost.style.top=(parseFloat(s.ghost.style.top)+(y-s.startY))+'px';s.startY=y;
+      for(let i=0;i<s.rowEls.length;i++){if(!s.rowEls[i]||i===s.idx||i>=s.list.length)continue;if(!!s.list[i].parked!==!!s.list[s.idx].parked)continue;const r=s.rowEls[i].getBoundingClientRect();
+        if(y>=r.top&&y<=r.bottom){const arr=[...s.list];const[m]=arr.splice(s.idx,1);arr.splice(i,0,m);reorderProjRef.current(arr);s.list=arr;s.idx=i;break;}}};
+    const onEnd=()=>{if(s.dragEl){s.dragEl.style.opacity='1';s.dragEl=null;}if(s.ghost){s.ghost.remove();s.ghost=null;}s.idx=null;};
+    const act=e=>{onStart(e);if(s.idx!==null)container.addEventListener('touchmove',onMove,{passive:false});};
+    const deact=e=>{onEnd(e);container.removeEventListener('touchmove',onMove);};
+    container.addEventListener('touchstart',act,{passive:true});container.addEventListener('touchend',deact,{passive:true});
+    return()=>{container.removeEventListener('touchstart',act);container.removeEventListener('touchmove',onMove);container.removeEventListener('touchend',deact);};
+  },[]);
+  const reorderTasks=(projId,pri,newArrIn)=>{
     setTasks(prev=>{
+      const dm=markCapsOrder(newArrIn);
+      const newArr=newArrIn.map(t=>{const cur=prev.find(x=>x.id===t.id)||t;return t.id in dm?{...cur,capsDemoted:dm[t.id]||undefined}:cur;});
       const ids=new Set(newArr.map(t=>t.id));
       const others=prev.filter(t=>!ids.has(t.id));
       const firstIdx=prev.findIndex(t=>t.projectId===projId&&t.priority===pri&&!t.recur&&!t.doneDate);
@@ -667,6 +700,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
         if(proj?.parked)return false;
         if(t.onDeck&&t.priority==="A")return true;
         if(t.needsNextDate)return false;
+        if(t.returnOn)return true;
         if(t.recur&&!t.dueDate&&!t.completedOn)return true;
         const today=todayDS();const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);const threeDaysDS=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());
         // Any task with a due or scheduled date within 3 days (or overdue) comes On Deck, whatever its When setting
@@ -782,23 +816,22 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
     </div>);})()}
 
     <div style={{fontFamily:"Georgia,serif",fontSize:"1rem",fontWeight:600,marginBottom:10,color:C.text2}}>Projects</div>
-    {[...[...projects].filter(p=>!p.completed).sort((a,b)=>0)].map((proj,idx)=>{
+    <div ref={projContainerRef}>{visibleProjs.map((proj,idx)=>{
 
       const pt=active.filter(t=>t.projectId===proj.id);const isOpen=proj.parked?(collapsed[proj.id]===true):!collapsed[proj.id];
-      const arrowBtn=(label,disabled,onClick)=>(<button onClick={e=>{e.stopPropagation();onClick();}} disabled={disabled} style={{...S.btnIcon,marginLeft:1,fontSize:".7rem",opacity:disabled?.3:1,cursor:disabled?"default":"pointer"}}>{label}</button>);
-      return(<div key={proj.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,marginBottom:12,overflow:"hidden"}}>
-        <div style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",background:proj.completed?"#e8f4e6":C.bg2,userSelect:"none"}}>
+      return(<div key={proj.id} ref={el=>projTouch.current.rowEls[idx]=el} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,marginBottom:12,overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px 7px 6px",background:proj.completed?"#e8f4e6":C.bg2,userSelect:"none"}}>
+          <span ref={el=>projTouch.current.handleEls[idx]=el} style={{color:C.text3,fontSize:"1rem",cursor:"grab",userSelect:"none",WebkitUserSelect:"none",touchAction:"none",padding:"2px 4px"}} title="Drag to reorder">⠿</span>
           <span style={{cursor:"pointer",fontSize:"1rem"}} onClick={e=>{e.stopPropagation();setProjects(projects.map(p=>{if(p.id!==proj.id)return p;if(!p.parked&&!p.completed)return{...p,parked:true};if(p.parked)return{...p,parked:false,completed:true,completedOn:todayDS()};return{...p,completed:false,completedOn:undefined};}));}} title={proj.completed?"Mark active":proj.parked?"Mark complete":"Park project"}>{proj.completed?"✅":proj.parked?"🅿️":"🟢"}</span>
           <span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:4,cursor:"pointer"}} onClick={()=>setCollapsed(c=>({...c,[proj.id]:proj.parked?(c[proj.id]!==true):!c[proj.id]}))}>{proj.name}</span>
           {proj.completed?<span style={{fontSize:".75rem",color:C.pc,fontWeight:600}}>Completed {proj.completedOn}</span>:<span style={{fontSize:".75rem",color:C.text3}}>{pt.length} task{pt.length!==1?"s":""}</span>}
-          <span style={{display:"inline-flex",flexDirection:"column",gap:0,marginLeft:2}}>{arrowBtn("▴",idx===0,()=>moveProject(idx,-1))}{arrowBtn("▾",idx===projects.length-1,()=>moveProject(idx,1))}</span>
           {!proj.completed&&<button style={{...S.btnIcon,marginLeft:4,background:C.accent,borderColor:C.accent,color:"#fff",fontSize:".72rem",fontWeight:600,width:"auto",padding:"0 10px",height:26}} onClick={e=>{e.stopPropagation();setEditTask(null);setAddingTo(proj.id);setAddingToToday(false);setShowTask(true);}}>+ Task</button>}
           {proj.id!=="misc"&&!isOpen&&<button style={{...S.btnIcon,marginLeft:2}} onClick={e=>{e.stopPropagation();setConfirm({type:"project",id:proj.id,name:proj.name});}}>🗑</button>}
         </div>
         {isOpen&&<div style={{padding:"4px 10px"}}>
           {pt.length===0&&!proj.completed&&<div style={{color:C.text3,fontSize:".83rem",padding:"4px 0"}}>No tasks yet.</div>}
           {proj.completed&&pt.length===0&&<div style={{color:C.text3,fontSize:".83rem",padding:"4px 0",fontStyle:"italic"}}>All tasks completed.</div>}
-          {["A","B","S","C"].map(pri=>{
+          {["A","S","B","C"].map(pri=>{
             const priTasks=pt.filter(t=>t.priority===pri&&!t.recur&&!t.doneDate).slice().sort((a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ad=effDate(a),bd=effDate(b);const aHas=!!ad,bHas=!!bd;if(aHas&&!bHas)return-1;if(!aHas&&bHas)return 1;if(aHas&&bHas&&ad!==bd)return ad<bd?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;});
             if(!priTasks.length)return null;
             return <PriorityGroup key={pri} projId={proj.id} pri={pri} priTasks={priTasks} priLabel={priLabel} priCol={priCol} completeTask={completeTask} setEditTask={setEditTask} setShowTask={setShowTask} addToToday={addToToday} removeFromToday={removeFromToday} reorderTasks={reorderTasks} isParked={!!proj.parked} setTasks={setTasks}/>;
@@ -824,7 +857,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
         })()}
         </div>}
       </div>);
-    })}
+    })}</div>
     <button style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:10,border:`1.5px dashed ${C.border}`,borderRadius:12,color:C.text3,fontSize:".84rem",width:"100%",background:"transparent",cursor:"pointer"}} onClick={()=>setShowProj(true)}>＋ New Project</button>
     {(()=>{
       const completedProjs=projects.filter(p=>p.completed);
@@ -868,7 +901,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       </div>);
     })()}
     {confirm&&<Confirm title={confirm.type==="project"?"Delete Project?":"Delete Task?"} body={`Delete "${confirm.name}"?${confirm.type==="project"?" All tasks inside will also be deleted.":""}`} onOk={doDelete} onCancel={()=>setConfirm(null)}/>}
-    {showTask&&<TaskModal task={editTask} projects={projects} defaultProjectId={addingTo||"misc"} onSave={saveTask} onClose={()=>{setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);}} onRemoveToday={id=>{removeFromToday(id);setShowTask(false);setEditTask(null);}} onDelete={id=>{setTasks(prev=>prev.filter(t=>t.id!==id));setShowTask(false);setEditTask(null);}}/>}
+    {showTask&&<TaskModal lastDone={editTask?.recur?lastDoneOf(editTask,tasks):null} task={editTask} projects={projects} defaultProjectId={addingTo||"misc"} onSave={saveTask} onClose={()=>{setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);}} onRemoveToday={id=>{removeFromToday(id);setShowTask(false);setEditTask(null);}} onDelete={id=>{setTasks(prev=>prev.filter(t=>t.id!==id));setShowTask(false);setEditTask(null);}}/>}
     {showProj&&<ProjectModal onSave={addProject} onClose={()=>setShowProj(false)}/>}
     {(()=>{const nt=tasks.find(t=>t.needsNextDate&&!t.doneDate&&!nextLater.includes(t.id));if(!nt||showTask||progressPrompt)return null;return <NextDateModal key={nt.id} task={nt} onLater={()=>setNextLater(l=>[...l,nt.id])} onStop={id=>setTasks(prev=>prev.filter(x=>x.id!==id))} onSave={(id,d)=>{const t3=new Date();t3.setDate(t3.getDate()+3);const ds3=toDS(t3.getFullYear(),t3.getMonth(),t3.getDate());setTasks(prev=>prev.map(x=>x.id===id?{...x,dueDate:d,calculatedDate:undefined,needsNextDate:undefined,priority:d<=ds3?"A":"B"}:x));}}/>;})()}
     {progressPrompt&&<ProgressPromptModal task={progressPrompt} onLog={handleProgressLog} onClose={()=>setProgressPrompt(null)}/>}
@@ -1148,7 +1181,7 @@ function ExportModal({moodData,actData,tasks,projects,moodWords,actWords,coachLo
 
 function App(){
   useEffect(()=>{const style=document.createElement("style");style.innerHTML=`*{box-sizing:border-box!important;}body,html{margin:0!important;padding:0!important;}[data-drag],[data-drag] *{user-select:none!important;-webkit-user-select:none!important;touch-action:none!important;}`;document.head.appendChild(style);return()=>document.head.removeChild(style);},[]);
-  const [tab,setTab]=useState("coach");const [loaded,setLoaded]=useState(false);const [showExport,setShowExport]=useState(false);const [showSearch,setShowSearch]=useState(false);const [searchQ,setSearchQ]=useState("");
+  const [tab,setTab]=useState("coach");const [loaded,setLoaded]=useState(false);const [showExport,setShowExport]=useState(false);const [showSearch,setShowSearch]=useState(false);const [openTaskId,setOpenTaskId]=useState(null);const [searchQ,setSearchQ]=useState("");
   const [moodData,setMoodData]=useState({});const [actData,setActData]=useState({});const [projects,setProjects]=useState([]);const [tasks,setTasks]=useState([]);const [moodWords,setMoodWords]=useState([]);const [actWords,setActWords]=useState([]);const [coachLogs,setCoachLogs]=useState({});const [coachMemory,setCoachMemory]=useState({insights:[],lastUpdated:null});
   const clockKey=()=>todayDS()+"|"+getCheckInType();
   const [clock,setClock]=useState(clockKey());
@@ -1168,6 +1201,13 @@ if(t.recur&&!t.doneDate&&t.recurMode==="fixed"&&t.dueDate&&t.dueDate<today&&!isM
 if(t.recur&&!t.doneDate){if(t.dueDate&&t.dueDate<=threeDaysStr&&t.priority!=="A"){changed=true;return{...t,priority:"A"};}if((!t.dueDate||t.dueDate>threeDaysStr)&&t.priority!=="B"){changed=true;return{...t,priority:"B"};}}return t;});const updated2=updated.map(t=>{if((t.dueDate===today||schedOf(t)===today)&&!t.today&&!t.doneDate){changed=true;return{...t,today:true};}if(t.inProgress&&!t.doneDate&&!t.today&&t.progressedOn===today){changed=true;return{...t,today:true};}if(t.completedOn&&t.completedOn!==today){changed=true;return{...t,today:undefined,completedOn:undefined,progressedOn:undefined};}// Waiting tasks due within 3 days resurface on On Deck
 if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){changed=true;return{...t,onDeck:true};}return t;});return changed?updated2:prev;});},[loaded,dayKey]);
 
+  // Today rules (run on load, at day change, and whenever tasks/projects change):
+  //  - tasks sent back with ↩ return to Today on their return date
+  //  - ALL CAPS tasks go to Today unless waiting, scheduled for later, or in a parked/completed project
+  useEffect(()=>{if(!loaded)return;const today=todayDS();setTasks(prev=>{let changed=false;const out=prev.map(t=>{if(t.doneDate)return t;
+    if(t.returnOn&&t.returnOn<=today&&!t.today){changed=true;if(t.waiting&&!t.onDeck)return{...t,returnOn:undefined};return{...t,today:true,returnOn:undefined};}
+    if(isAllCaps(t)&&!t.today&&!t.returnOn&&!t.waiting&&!t.needsNextDate){const pr=projects.find(p=>p.id===t.projectId);if(pr&&(pr.parked||pr.completed))return t;if(t.priority==="S"&&t.schedDate&&t.schedDate>today)return t;if(t.recur&&t.dueDate&&t.dueDate>today)return t;changed=true;return{...t,today:true};}
+    return t;});return changed?out:prev;});},[loaded,dayKey,tasks,projects]);
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.mood,moodData);},[moodData,loaded]);
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.act,actData);},[actData,loaded]);
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.tasks,tasks);},[tasks,loaded]);
@@ -1209,7 +1249,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
         </div>
         {q&&results.length===0&&<div style={{fontSize:".82rem",color:C.text3,padding:"4px 2px"}}>No active tasks found.</div>}
         {results.length>0&&<div style={{maxHeight:260,overflowY:"auto",borderRadius:8,border:`1px solid ${C.border}`,background:C.bg}}>
-          {results.map(t=>{const proj=getProj(t.projectId);return(<div key={t.id} onClick={()=>{setTab("todo");setShowSearch(false);setSearchQ("");}} style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+          {results.map(t=>{const proj=getProj(t.projectId);return(<div key={t.id} onClick={()=>{setTab("todo");setShowSearch(false);setSearchQ("");setOpenTaskId(t.id);}} style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <div>
               <div style={{fontSize:".85rem",color:C.text}}>{t.title}</div>
               {t.notes&&<div style={{fontSize:".74rem",color:C.text3,marginTop:1}}>{t.notes.slice(0,60)}{t.notes.length>60?"…":""}</div>}
@@ -1222,7 +1262,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
     <nav style={S.tabbar}>{TABS.map(([id,label])=><button key={id} style={{flexShrink:0,padding:"6px 6px",background:"none",border:"none",borderBottom:tab===id?`3px solid ${C.accent}`:"3px solid transparent",fontSize:".74rem",fontWeight:tab===id?600:500,color:tab===id?C.accent:C.text2,cursor:"pointer",whiteSpace:"nowrap",transition:"all .18s"}} onClick={()=>setTab(id)}>{label}</button>)}</nav>
     <div style={S.panel}>
       {tab==="mood"&&<div style={S.card}><MoodCalendar moodData={moodData} tasks={tasks} coachLogs={coachLogs} onDayClick={setMoodModal}/></div>}
-      {tab==="todo"&&<TodoTab tasks={tasks} projects={projects} setTasks={setTasks} setProjects={setProjects}/>}
+      {tab==="todo"&&<TodoTab tasks={tasks} projects={projects} setTasks={setTasks} setProjects={setProjects} openTaskId={openTaskId} onOpenedTask={()=>setOpenTaskId(null)}/>}
       {tab==="completed"&&<CompletedTab tasks={tasks} projects={projects} setTasks={setTasks}/>}
       {tab==="coach"&&<CoachTab moodData={moodData} actData={actData} tasks={tasks} projects={projects} setTasks={setTasks} coachMemory={coachMemory} onUpdateMemory={handleUpdateMemory} coachLogs={coachLogs} onSaveLog={saveCoachLog} checkInDismissed={checkInDismissed} onDismissCheckIn={()=>setCheckInDismissed(v=>!v)} moodWords={moodWords} onSaveMood={saveMood} onSaveAct={(key,data)=>setActData(a=>({...a,[key]:data}))}/>}
     </div>
