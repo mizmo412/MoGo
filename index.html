@@ -300,6 +300,17 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
   // Changing how often a task repeats recalculates the next date from the last time it was done
   const recurFirst=useRef(true);
   useEffect(()=>{if(recurFirst.current){recurFirst.current=false;return;}if(recur&&!isManualRecur(recur)&&lastDone){setDueDate(addInterval(lastDone,recur));setRecalcNote(`Recalculated from last done: ${fmtDueDate(lastDone)}`);}else setRecalcNote("");},[recur]);const progressLog=task?.progressLog||[];
+  const [schedConflict,setSchedConflict]=useState(false);
+  const submit=(opts={})=>{
+        if(!title.trim()){alert("Title required.");return;}
+        if(waiting&&!waitingOn.trim()){alert("Please describe who or what you're waiting on.");return;}
+        if(!recur&&pri==="S"&&!schedDate){alert("Please pick the date you plan to do it.");return;}
+        const dd=opts.dueOverride!==undefined?opts.dueOverride:dueDate;
+        if(!opts.skipConflict&&!recur&&pri==="S"&&schedDate&&dd&&schedDate>dd){setSchedConflict(true);return;}
+        const newLog=[...(progressNote.trim()?[...progressLog,{date:todayDS(),note:progressNote.trim()}]:progressLog),...(completeNote.trim()?[{date:todayDS(),note:"[Complete] "+completeNote.trim()}]:[])];
+        const doneVal=markComplete?(trivial?"trivial":todayDS()):undefined;
+        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dd?(dd<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:trivial||undefined,progressLog:newLog.length?newLog:undefined,dueDate:dd||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dd&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?todayDS():undefined,onDeck:waiting?task?.onDeck:undefined});
+  };
   return(<div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:16}}>{task?"Edit Task":"Add Task"}</div>
     <FormRow label="Task Title"><input style={S.input} value={title} onChange={e=>setTitle(e.target.value)} placeholder="What needs to be done?" autoFocus/></FormRow>
@@ -337,15 +348,17 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
       <button style={btn("ghost")} onClick={onClose}>Cancel</button>
       {task&&onDelete&&<button style={btn("ghost",{color:C.text3})} onClick={()=>onDelete(task.id)}>🗑 Delete</button>}
       {task?.inProgress&&task?.today&&onRemoveToday&&<button style={btn("ghost",{color:C.text3})} onClick={()=>onRemoveToday(task.id)}>↩ Return to Project</button>}
-      <button style={btn("primary")} onClick={()=>{
-        if(!title.trim()){alert("Title required.");return;}
-        if(waiting&&!waitingOn.trim()){alert("Please describe who or what you're waiting on.");return;}
-        if(!recur&&pri==="S"&&!schedDate){alert("Please pick the date you plan to do it.");return;}
-        const newLog=[...(progressNote.trim()?[...progressLog,{date:todayDS(),note:progressNote.trim()}]:progressLog),...(completeNote.trim()?[{date:todayDS(),note:"[Complete] "+completeNote.trim()}]:[])];
-        const doneVal=markComplete?(trivial?"trivial":todayDS()):undefined;
-        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dueDate?(dueDate<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:trivial||undefined,progressLog:newLog.length?newLog:undefined,dueDate:dueDate||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dueDate&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?todayDS():undefined,onDeck:waiting?task?.onDeck:undefined});
-      }}>Save Task</button>
+      <button style={btn("primary")} onClick={()=>submit()}>Save Task</button>
     </div>
+    {schedConflict&&<div style={S.overlay} onClick={e=>{e.stopPropagation();setSchedConflict(false);}}><div style={{...S.modal,maxWidth:340}} onClick={e=>e.stopPropagation()}>
+      <div style={{fontFamily:"Georgia,serif",fontSize:"1.02rem",fontWeight:600,marginBottom:8}}>📅 Scheduled after the due date</div>
+      <div style={{fontSize:".86rem",color:C.text2,marginBottom:14}}>You plan to do it on <b>{fmtDueDate(schedDate)}</b>, but it's due <b>{fmtDueDate(dueDate)}</b>.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        <button style={btn("ghost",{justifyContent:"center"})} onClick={()=>{setSchedConflict(false);submit({skipConflict:true});}}>Leave as overdue</button>
+        <button style={btn("primary",{justifyContent:"center"})} onClick={()=>{setSchedConflict(false);setDueDate(schedDate);submit({skipConflict:true,dueOverride:schedDate});}}>Move due date to {fmtDueDate(schedDate)}</button>
+        <button style={btn("ghost",{justifyContent:"center",color:C.text3})} onClick={()=>setSchedConflict(false)}>Revise date</button>
+      </div>
+    </div></div>}
   </div></div>);
 }
 
@@ -545,6 +558,8 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
   const doDelete=()=>{if(!confirm)return;if(confirm.type==="task")setTasks(tasks.filter(t=>t.id!==confirm.id));else{setProjects(projects.filter(p=>p.id!==confirm.id));setTasks(tasks.filter(t=>t.projectId!==confirm.id));}setConfirm(null);};
   const addProject=name=>{setProjects([...projects,{id:uid(),name}]);setShowProj(false);};
   // Project order: open projects first, then parked (each keeps its own order); completed live in their own section
+  const [renameId,setRenameId]=useState(null);const [renameVal,setRenameVal]=useState("");
+  const saveRename=id=>{const n=renameVal.trim();if(!n)return;setProjects(prev=>prev.map(p=>p.id===id?{...p,name:n}:p));setRenameId(null);};
   const visibleProjs=[...projects.filter(p=>!p.completed&&!p.parked),...projects.filter(p=>!p.completed&&p.parked)];
   const reorderProjects=newVisible=>setProjects(prev=>{const byId=Object.fromEntries(prev.map(p=>[p.id,p]));return[...newVisible.map(p=>byId[p.id]||p),...prev.filter(p=>p.completed)];});
   const reorderProjRef=useRef(reorderProjects);reorderProjRef.current=reorderProjects;
@@ -715,10 +730,11 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       onDeckTouchState.current.tasks=sortedOnDeck;
       return onDeckTasks.length>0&&(
       <div style={{background:C.card,border:`1.5px solid ${C.pa}22`,borderRadius:12,marginBottom:14,overflow:"hidden"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:"#fde8e7"}}>
-          <span style={{fontWeight:600,fontSize:".9rem",flex:1,color:C.pa}}>On Deck</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 14px",background:"#fde8e7",cursor:"pointer",userSelect:"none"}} onClick={()=>setCollapsed(c=>({...c,__onDeck__:!c.__onDeck__}))}>
+          <span style={{width:"1.1rem",textAlign:"center",color:C.pa,fontSize:".9rem",display:"inline-block",transition:"transform .2s",transform:collapsed.__onDeck__?"rotate(-90deg)":""}}>▾</span>
+          <span style={{fontWeight:600,fontSize:".9rem",flex:1,color:C.pa}}>On Deck{collapsed.__onDeck__?` (${sortedOnDeck.length})`:""}</span>
         </div>
-        <div ref={onDeckContainerRef} style={{padding:"4px 10px 8px"}}>
+        <div ref={onDeckContainerRef} style={{padding:"4px 10px 8px",display:collapsed.__onDeck__?"none":"block"}}>
           {sortedOnDeck.map((task,ti)=>(
             <div key={task.id} ref={el=>onDeckTouchState.current.rowEls[ti]=el} style={{display:"flex",alignItems:"flex-start",gap:4}}>
               <div ref={el=>onDeckTouchState.current.handleEls[ti]=el} style={{color:C.text3,fontSize:"1rem",paddingTop:4,flexShrink:0,cursor:"grab",userSelect:"none",WebkitUserSelect:"none",padding:"4px 6px 4px 2px"}}>⠿</div>
@@ -821,9 +837,12 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       const pt=active.filter(t=>t.projectId===proj.id);const isOpen=proj.parked?(collapsed[proj.id]===true):!collapsed[proj.id];
       return(<div key={proj.id} ref={el=>projTouch.current.rowEls[idx]=el} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,marginBottom:12,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px 7px 6px",background:proj.completed?"#e8f4e6":C.bg2,userSelect:"none"}}>
-          <span ref={el=>projTouch.current.handleEls[idx]=el} style={{color:C.text3,fontSize:"1rem",cursor:"grab",userSelect:"none",WebkitUserSelect:"none",touchAction:"none",padding:"2px 4px"}} title="Drag to reorder">⠿</span>
-          <span style={{cursor:"pointer",fontSize:"1rem"}} onClick={e=>{e.stopPropagation();setProjects(projects.map(p=>{if(p.id!==proj.id)return p;if(!p.parked&&!p.completed)return{...p,parked:true};if(p.parked)return{...p,parked:false,completed:true,completedOn:todayDS()};return{...p,completed:false,completedOn:undefined};}));}} title={proj.completed?"Mark active":proj.parked?"Mark complete":"Park project"}>{proj.completed?"✅":proj.parked?"🅿️":"🟢"}</span>
-          <span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:4,cursor:"pointer"}} onClick={()=>setCollapsed(c=>({...c,[proj.id]:proj.parked?(c[proj.id]!==true):!c[proj.id]}))}>{proj.name}</span>
+          <span ref={el=>projTouch.current.handleEls[idx]=el} style={{color:C.text3,fontSize:"1rem",cursor:"grab",userSelect:"none",WebkitUserSelect:"none",touchAction:"none",padding:"4px 10px 4px 4px"}} title="Drag to reorder">⠿</span>
+          {proj.id==="misc"?<span style={{fontSize:"1rem",width:"1.3rem",textAlign:"center"}} title="Misc is always open">📥</span>
+          :<span style={{cursor:"pointer",fontSize:"1rem",padding:"2px 2px"}} onClick={e=>{e.stopPropagation();if(proj.parked&&pt.length>0&&!window.confirm(`"${proj.name}" still has ${pt.length} open task${pt.length!==1?"s":""}.\n\nMark it complete anyway?`))return;setProjects(prev=>prev.map(p=>{if(p.id!==proj.id)return p;if(!p.parked&&!p.completed)return{...p,parked:true};if(p.parked)return{...p,parked:false,completed:true,completedOn:todayDS()};return{...p,completed:false,completedOn:undefined};}));}} title={proj.completed?"Mark active":proj.parked?"Mark complete":"Park project"}>{proj.completed?"✅":proj.parked?"🅿️":"🟢"}</span>}
+          {renameId===proj.id
+            ?<span style={{flex:1,display:"flex",gap:4,alignItems:"center",marginLeft:4}} onClick={e=>e.stopPropagation()}><input autoFocus style={{...S.input,padding:"4px 8px",fontSize:"16px"}} value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(proj.id);}}/><button style={{...S.btnIcon,width:30}} onClick={()=>saveRename(proj.id)} title="Save name">✓</button><button style={{...S.btnIcon,width:30}} onClick={()=>setRenameId(null)} title="Cancel">✕</button></span>
+            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:4,cursor:"pointer"}} onClick={()=>setCollapsed(c=>({...c,[proj.id]:proj.parked?(c[proj.id]!==true):!c[proj.id]}))}>{proj.name}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
           {proj.completed?<span style={{fontSize:".75rem",color:C.pc,fontWeight:600}}>Completed {proj.completedOn}</span>:<span style={{fontSize:".75rem",color:C.text3}}>{pt.length} task{pt.length!==1?"s":""}</span>}
           {!proj.completed&&<button style={{...S.btnIcon,marginLeft:4,background:C.accent,borderColor:C.accent,color:"#fff",fontSize:".72rem",fontWeight:600,width:"auto",padding:"0 10px",height:26}} onClick={e=>{e.stopPropagation();setEditTask(null);setAddingTo(proj.id);setAddingToToday(false);setShowTask(true);}}>+ Task</button>}
           {proj.id!=="misc"&&!isOpen&&<button style={{...S.btnIcon,marginLeft:2}} onClick={e=>{e.stopPropagation();setConfirm({type:"project",id:proj.id,name:proj.name});}}>🗑</button>}
@@ -1208,6 +1227,8 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
     if(t.returnOn&&t.returnOn<=today&&!t.today){changed=true;if(t.waiting&&!t.onDeck)return{...t,returnOn:undefined};return{...t,today:true,returnOn:undefined};}
     if(isAllCaps(t)&&!t.today&&!t.returnOn&&!t.waiting&&!t.needsNextDate){const pr=projects.find(p=>p.id===t.projectId);if(pr&&(pr.parked||pr.completed))return t;if(t.priority==="S"&&t.schedDate&&t.schedDate>today)return t;if(t.recur&&t.dueDate&&t.dueDate>today)return t;changed=true;return{...t,today:true};}
     return t;});return changed?out:prev;});},[loaded,dayKey,tasks,projects]);
+  // Misc is the permanent catch-all: if it was ever parked or completed, switch it back to active
+  useEffect(()=>{if(!loaded)return;setProjects(prev=>prev.some(p=>p.id==="misc"&&(p.parked||p.completed))?prev.map(p=>p.id==="misc"?{...p,parked:false,completed:false,completedOn:undefined}:p):prev);},[loaded,projects]);
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.mood,moodData);},[moodData,loaded]);
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.act,actData);},[actData,loaded]);
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.tasks,tasks);},[tasks,loaded]);
