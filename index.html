@@ -12,6 +12,7 @@
 </head>
 <body>
   <div id="root"></div>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -696,12 +697,12 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       const pt=active.filter(t=>t.projectId===proj.id);const isOpen=proj.parked?(collapsed[proj.id]===true):!collapsed[proj.id];
       return(<div key={proj.id} ref={el=>{if(idx>=0)projTouch.current.rowEls[idx]=el;}} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,marginBottom:12,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px 7px 6px",background:proj.completed?"#e8f4e6":C.bg2,userSelect:"none"}}>
-          {proj.id!=="misc"&&<span ref={el=>{if(idx>=0)projTouch.current.handleEls[idx]=el;}} style={{color:C.text3,fontSize:"1rem",cursor:"grab",userSelect:"none",WebkitUserSelect:"none",touchAction:"none",padding:"4px 10px 4px 4px"}} title="Drag to reorder">⠿</span>}
+          {proj.id!=="misc"&&<span ref={el=>{if(idx>=0)projTouch.current.handleEls[idx]=el;}} style={{color:C.text3,fontSize:"1rem",cursor:"grab",userSelect:"none",WebkitUserSelect:"none",touchAction:"none",padding:"4px 4px 4px 4px"}} title="Drag to reorder">⠿</span>}
           {proj.id==="misc"?<span style={{fontSize:"1rem",padding:"2px 2px 2px 6px"}} title="Misc is always open">🧺</span>
           :<span style={{cursor:"pointer",fontSize:"1rem",padding:"2px 2px"}} onClick={e=>{e.stopPropagation();setProjects(prev=>prev.map(p=>p.id!==proj.id?p:{...p,parked:!p.parked}));}} title={proj.parked?"Make active":"Park project"}>{proj.completed?"✅":proj.parked?"🅿️":"🟢"}</span>}
           {renameId===proj.id
             ?<span style={{flex:1,display:"flex",gap:4,alignItems:"center",marginLeft:4}} onClick={e=>e.stopPropagation()}><input autoFocus style={{...S.input,padding:"4px 8px",fontSize:"16px"}} value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(proj.id);}}/><button style={{...S.btnIcon,width:30}} onClick={()=>saveRename(proj.id)} title="Save name">✓</button><button style={{...S.btnIcon,width:30}} onClick={()=>setRenameId(null)} title="Cancel">✕</button></span>
-            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:4,cursor:"pointer"}} onClick={()=>setCollapsed(c=>({...c,[proj.id]:proj.parked?(c[proj.id]!==true):!c[proj.id]}))}>{proj.name}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
+            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:0,cursor:"pointer"}} onClick={()=>setCollapsed(c=>({...c,[proj.id]:proj.parked?(c[proj.id]!==true):!c[proj.id]}))}>{proj.name}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
           {proj.completed?<span style={{fontSize:".75rem",color:C.pc,fontWeight:600}}>Completed {proj.completedOn}</span>:<span style={{fontSize:".75rem",color:C.text3}}>{pt.length} task{pt.length!==1?"s":""}</span>}
           {!proj.completed&&<button style={{...S.btnIcon,marginLeft:4,background:C.accent,borderColor:C.accent,color:"#fff",fontSize:".72rem",fontWeight:600,width:"auto",padding:"0 10px",height:26}} onClick={e=>{e.stopPropagation();setEditTask(null);setAddingTo(proj.id);setAddingToToday(false);setShowTask(true);}}>+ Task</button>}
           {proj.id!=="misc"&&!isOpen&&<button style={{...S.btnIcon,marginLeft:2}} onClick={e=>{e.stopPropagation();setConfirm({type:"project",id:proj.id,name:proj.name});}}>🗑</button>}
@@ -1149,6 +1150,155 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
 }
 
 
+// ================= Google Drive sync (added 11/03/26) =================
+// The phone keeps the master copy. When connected, MoGo saves: a private backup in Drive's hidden
+// app-data area (only MoGo can see it), a dated daily copy (kept 30 days), and George's file in MoGo/.
+const GCLIENT="484731492501-kbuon94j20af0b31mo03bih0pa4f3m6o.apps.googleusercontent.com";
+const GSCOPES="https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata";
+const DRIVE_KEY="wh_drive_v6";
+const DAPI="https://www.googleapis.com/drive/v3/files",DUP="https://www.googleapis.com/upload/drive/v3/files";
+const Drive={token:null,exp:0,client:null,status:"off",msg:"",subs:new Set(),busy:false,pending:false,lastAuto:0,getSnap:null};
+const driveCfg=()=>{try{return JSON.parse(localStorage.getItem(DRIVE_KEY)||"{}")||{};}catch(e){return {};}};
+const driveSaveCfg=patch=>{const c={...driveCfg(),...patch};try{localStorage.setItem(DRIVE_KEY,JSON.stringify(c));}catch(e){}return c;};
+const driveSet=(status,msg="")=>{Drive.status=status;Drive.msg=msg;Drive.subs.forEach(f=>f({status,msg}));};
+function useDrive(){const [st,setSt]=useState({status:Drive.status,msg:Drive.msg});useEffect(()=>{Drive.subs.add(setSt);return()=>{Drive.subs.delete(setSt);};},[]);return st;}
+const driveValid=()=>!!Drive.token&&Date.now()<Drive.exp;
+function driveInit(){
+  if(Drive.client)return Drive.client;
+  const g=window.google&&window.google.accounts&&window.google.accounts.oauth2;if(!g)return null;
+  Drive.client=g.initTokenClient({client_id:GCLIENT,scope:GSCOPES,login_hint:"mizmogo@gmail.com",
+    callback:r=>{if(!r||r.error||!r.access_token){driveSet("needs","Couldn't connect — tap ☁️ to try again.");return;}
+      Drive.token=r.access_token;Drive.exp=Date.now()+((+r.expires_in||3600)-120)*1000;driveSaveCfg({connected:true});driveSync();},
+    error_callback:e=>{driveSet("needs",e&&e.type==="popup_closed"?"Sign-in was closed — tap ☁️ to sync.":"Tap ☁️ to sync.");}});
+  return Drive.client;
+}
+function driveConnect(){
+  if(Drive.status==="connecting"&&Date.now()-Drive.lastAuto<4000)return; // one tap = one sign-in request
+  const c=driveInit();if(!c){driveSet("error","Google sign-in didn't load — check your internet, then tap ☁️.");return;}
+  driveSet("connecting","Connecting…");Drive.lastAuto=Date.now();
+  try{c.requestAccessToken({prompt:driveCfg().connected?"":"consent"});}catch(e){driveSet("needs","Tap ☁️ to sync.");}
+}
+function driveDisconnect(){
+  try{if(Drive.token&&window.google)window.google.accounts.oauth2.revoke(Drive.token,()=>{});}catch(e){}
+  Drive.token=null;Drive.exp=0;driveSaveCfg({connected:false});driveSet("off","");
+}
+async function dfetch(url,opt={}){const r=await fetch(url,{...opt,headers:{...(opt.headers||{}),Authorization:"Bearer "+Drive.token}});if(r.status===401){Drive.token=null;throw new Error("auth");}return r;}
+async function dFind(q,spaces){const r=await dfetch(`${DAPI}?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime)&pageSize=200${spaces?"&spaces="+spaces:""}`);if(!r.ok)throw new Error("list "+r.status);return (await r.json()).files||[];}
+async function dCreate(meta,content){
+  if(content===undefined){const r=await dfetch(DAPI+"?fields=id",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(meta)});if(!r.ok)throw new Error("create "+r.status);return (await r.json()).id;}
+  const b="mogo"+Math.random().toString(36).slice(2);
+  const body=`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${b}--`;
+  const r=await dfetch(DUP+"?uploadType=multipart&fields=id",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+b},body});if(!r.ok)throw new Error("upload "+r.status);return (await r.json()).id;
+}
+async function dUpdate(id,content){const r=await dfetch(`${DUP}/${id}?uploadType=media`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:content});if(r.status===404)return false;if(!r.ok)throw new Error("update "+r.status);return true;}
+async function dRead(id){const r=await dfetch(`${DAPI}/${id}?alt=media`);if(!r.ok)throw new Error("read "+r.status);return r.text();}
+async function dAlive(id){if(!id)return false;const r=await dfetch(`${DAPI}/${id}?fields=id,trashed`);if(!r.ok)return false;const j=await r.json();return !j.trashed;}
+// Write a file by name: reuse the remembered file, else find it, else create it
+async function dPut(cfgKey,name,parent,content){
+  let id=driveCfg()[cfgKey];if(id&&await dUpdate(id,content))return id;
+  const app=parent==="appDataFolder";
+  const found=await dFind(`name='${name}' and trashed=false`+(app?"":` and '${parent}' in parents`),app?"appDataFolder":"");
+  if(found[0]){id=found[0].id;await dUpdate(id,content);}else id=await dCreate({name,parents:[parent]},content);
+  driveSaveCfg({[cfgKey]:id});return id;
+}
+async function dFolder(){
+  const cfg=driveCfg();if(await dAlive(cfg.folderId))return cfg.folderId;
+  const f=await dFind("name='MoGo' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+  const id=f[0]?f[0].id:await dCreate({name:"MoGo",mimeType:"application/vnd.google-apps.folder"});driveSaveCfg({folderId:id});return id;
+}
+// The inbox is created by MoGo (so MoGo is allowed to read it) — and never overwritten once it exists
+async function dEnsureInbox(folderId){
+  if(await dAlive(driveCfg().inboxFileId))return;
+  const f=await dFind(`name='inbox-from-george.json' and '${folderId}' in parents and trashed=false`);
+  const id=f[0]?f[0].id:await dCreate({name:"inbox-from-george.json",parents:[folderId]},JSON.stringify({schemaVersion:2,messages:[]},null,2));
+  driveSaveCfg({inboxFileId:id});
+}
+async function dDaily(content){
+  const today=todayDS(),cfg=driveCfg();
+  if(!(cfg.dailyDate===today&&cfg.dailyId&&await dUpdate(cfg.dailyId,content))){
+    const name=`mogo-backup-${today}.json`;const f=await dFind(`name='${name}' and trashed=false`,"appDataFolder");
+    let id;if(f[0]){id=f[0].id;await dUpdate(id,content);}else id=await dCreate({name,parents:["appDataFolder"]},content);
+    driveSaveCfg({dailyDate:today,dailyId:id});
+  }
+  if(cfg.prunedDate!==today){ // keep 30 days of daily copies
+    const cut=new Date();cut.setDate(cut.getDate()-30);const cutDS=toDS(cut.getFullYear(),cut.getMonth(),cut.getDate());
+    const all=await dFind("name contains 'mogo-backup-' and trashed=false","appDataFolder");
+    for(const x of all){const m=(x.name||"").match(/^mogo-backup-(\d{4}-\d\d-\d\d)\.json$/);if(m&&m[1]<cutDS){try{await dfetch(`${DAPI}/${x.id}`,{method:"DELETE"});}catch(e){}}}
+    driveSaveCfg({prunedDate:today});
+  }
+}
+async function driveSync(){
+  if(!Drive.getSnap||!driveCfg().connected)return;
+  if(!driveValid()){Drive.pending=true;driveSet("needs","Tap ☁️ to sync.");return;}
+  if(Drive.busy){Drive.pending=true;return;}
+  Drive.busy=true;Drive.pending=false;driveSet("syncing","Syncing…");
+  try{
+    const {backup,george}=Drive.getSnap();const content=JSON.stringify(backup);
+    await dPut("backupFileId","mogo-backup.json","appDataFolder",content);
+    await dDaily(content);
+    const folder=await dFolder();
+    await dPut("georgeFileId","mogo-for-george.json",folder,JSON.stringify(george,null,2));
+    await dEnsureInbox(folder);
+    const t=new Date();driveSaveCfg({lastSync:t.toISOString()});driveSet("ok","Synced "+t.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}));
+  }catch(e){if(!driveValid()){Drive.pending=true;driveSet("needs","Tap ☁️ to sync.");}else driveSet("error","Couldn't save to Drive — tap ☁️ to retry.");}
+  Drive.busy=false;if(Drive.pending&&driveValid())setTimeout(driveSync,500);
+}
+// ---- George's file (spec v3.3; no isTrivial) ----
+function isoLocal(d){const o=-d.getTimezoneOffset(),sg=o>=0?"+":"-",p=n=>String(Math.floor(Math.abs(n))).padStart(2,"0");return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${sg}${p(o/60)}:${p(o%60)}`;}
+function recurEvery(r){if(!r)return null;if(r.startsWith("custom:")){const[,n,u]=r.split(":");if(u==="manual")return "manual";const k=parseInt(n)||1;return k+" "+(k===1?u.replace(/s$/,""):u);}if(/^\d+days$/.test(r))return parseInt(r)+" days";return {daily:"1 day",weekly:"1 week",biweekly:"2 weeks",monthly:"1 month"}[r]||r;}
+function buildGeorgeFile(tasks,projects,coachLogs){
+  const pr=id=>projects.find(p=>p.id===id);const when={A:"available",B:"soon",S:"scheduled",C:"someday"};
+  const days=Object.entries(coachLogs||{}).filter(([k,l])=>(l||[]).some(x=>(x.messages||[]).some(m=>m.role==="user"))).map(([k])=>k).sort();
+  const open=tasks.filter(t=>!t.doneDate).filter(t=>{const p=pr(t.projectId);return !(p&&(p.parked||p.completed));});
+  return {schemaVersion:2,exportedAt:isoLocal(new Date()),lastCheckIn:days.length?days[days.length-1]:null,
+    tasks:open.map(t=>({id:t.id,title:t.title,project:(pr(t.projectId)||{name:"Misc Tasks"}).name,when:when[t.priority]||"available",
+      dueDate:t.dueDate||null,scheduledDate:t.priority==="S"&&t.schedDate?t.schedDate:null,waiting:!!t.waiting,waitingOn:t.waitingOn||null,
+      inProgress:!!t.inProgress,onToday:!!t.today,
+      recurring:t.recur?{every:recurEvery(t.recur),ifMissed:isManualRecur(t.recur)?"manual":(t.recurMode==="fixed"?"fixed":"flexible"),lastDone:lastDoneOf(t,tasks)}:null,
+      notes:t.notes||""}))};
+}
+// ---- UI pieces ----
+function DriveChip(){
+  const {status,msg}=useDrive();if(status==="off")return null;
+  const label={ok:"☁️✓",syncing:"☁️…",connecting:"☁️…",needs:"☁️ Tap",error:"☁️⚠️"}[status]||"☁️";
+  return <button title={msg||"Google Drive"} onClick={e=>{e.stopPropagation();if(status==="needs"||status==="error"){if(driveValid())driveSync();else driveConnect();}}} style={{...S.btnIcon,fontSize:".7rem",padding:"3px 6px",width:"auto",color:status==="needs"||status==="error"?C.pa:C.text3,borderColor:status==="needs"?C.pa:C.border,fontWeight:status==="needs"?700:500}}>{label}</button>;
+}
+function DriveSettings(){
+  const {status,msg}=useDrive();const cfg=driveCfg();const last=cfg.lastSync?new Date(cfg.lastSync).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"never";
+  return(<div style={{marginBottom:16,padding:"10px 12px",background:C.bg2,borderRadius:8,border:`1px solid ${C.border}`}}>
+    <div style={{fontSize:".82rem",fontWeight:600,color:C.text2,marginBottom:6}}>☁️ Google Drive</div>
+    {!cfg.connected?<>
+      <div style={{fontSize:".76rem",color:C.text3,marginBottom:8}}>Saves a private backup of everything and shares your task list with George. Sign in as <b>mizmogo@gmail.com</b>.</div>
+      <button style={btn("primary")} onClick={driveConnect}>Connect Google Drive</button>
+    </>:<>
+      <div style={{fontSize:".78rem",color:C.text2}}>{status==="ok"?"✓ Connected":msg||"Connected"}</div>
+      <div style={{fontSize:".72rem",color:C.text3,marginTop:2,marginBottom:8}}>Last synced: {last}</div>
+      <div style={{display:"flex",gap:8}}>
+        <button style={btn("ghost",{padding:"5px 12px",fontSize:".78rem"})} onClick={()=>{if(driveValid())driveSync();else driveConnect();}}>Sync now</button>
+        <button style={btn("ghost",{padding:"5px 12px",fontSize:".78rem",color:C.text3})} onClick={()=>{if(window.confirm("Disconnect Google Drive?\n\nYour files stay in Drive; MoGo just stops updating them."))driveDisconnect();}}>Disconnect</button>
+      </div>
+    </>}
+  </div>);
+}
+function DriveRestore({confirmRestore,onImport,onClose}){
+  const {status}=useDrive();const [list,setList]=useState(null);const [err,setErr]=useState("");
+  if(!driveCfg().connected)return null;
+  const load=async()=>{if(!driveValid()){driveConnect();setErr("Connecting to Drive… tap the button again once it says connected.");return;}
+    setErr("");try{const f=await dFind("name contains 'mogo-backup' and trashed=false","appDataFolder");
+      f.sort((a,b)=>a.name==="mogo-backup.json"?-1:b.name==="mogo-backup.json"?1:b.name.localeCompare(a.name));setList(f);}catch(e){setErr("Couldn't read Drive — try again.");}};
+  const pick=async x=>{try{const d=JSON.parse(await dRead(x.id));if(!confirmRestore(d))return;onImport(d);onClose();alert("✅ Data restored from Drive!");}catch(e){alert("❌ Couldn't read that backup.");}};
+  const label=x=>x.name==="mogo-backup.json"?"Latest (saved automatically)":(()=>{const m=x.name.match(/(\d{4})-(\d\d)-(\d\d)/);return m?`Daily copy — ${MONTHS_SHORT[parseInt(m[2])-1]} ${parseInt(m[3])}, ${m[1]}`:x.name;})();
+  return(<div style={{marginBottom:12}}>
+    <button style={btn("ghost")} onClick={load}>☁️ Restore from Drive</button>
+    {err&&<div style={{fontSize:".75rem",color:C.pa,marginTop:4}}>{err}</div>}
+    {list&&<div style={{marginTop:6,border:`1px solid ${C.border}`,borderRadius:8,maxHeight:180,overflowY:"auto"}}>
+      {list.length===0&&<div style={{padding:8,fontSize:".8rem",color:C.text3}}>No Drive backups yet.</div>}
+      {list.map(x=><div key={x.id} onClick={()=>pick(x)} style={{padding:"7px 10px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",fontSize:".82rem",display:"flex",justifyContent:"space-between",gap:8}}><span>{label(x)}</span><span style={{color:C.text3,fontSize:".72rem"}}>{x.modifiedTime?new Date(x.modifiedTime).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):""}</span></div>)}
+    </div>}
+  </div>);
+}
+// =====================================================================
+
 function SettingsModal({onClose}){
   const [key,setKey]=useState(getApiKey());
   const [about,setAbout]=useState(getAboutMe());
@@ -1158,6 +1308,7 @@ function SettingsModal({onClose}){
   return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:440}} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:4}}>⚙️ Settings</div>
     <div style={{fontSize:".78rem",color:C.text3,marginBottom:16}}>Your API key is stored locally on this device only.</div>
+    <DriveSettings/>
     <div style={{marginBottom:16}}>
       <label style={{display:"block",fontSize:".82rem",fontWeight:600,color:C.text2,marginBottom:6}}>Anthropic API Key</label>
       <input style={{...S.input,fontFamily:"monospace",fontSize:".82rem"}} type="password" value={key} onChange={e=>{setKey(e.target.value);setSaved(false);}} placeholder="sk-ant-api03-…"/>
@@ -1197,6 +1348,7 @@ function ExportModal({moodData,actData,tasks,projects,moodWords,actWords,coachLo
     <textarea id="export-json-ta" style={{...S.textarea,fontFamily:"monospace",fontSize:".72rem",minHeight:240,background:C.bg2}} readOnly value={exportStr} onFocus={e=>{e.target.select();}}/>
     <div style={{fontSize:".75rem",color:C.text3,marginTop:4,textAlign:"center",marginBottom:6}}>Tap in the box above to select all, then copy</div>
     <div style={{fontSize:".74rem",color:C.text3,textAlign:"center",marginBottom:12,fontStyle:"italic"}}>🔑 Your Kate API key is not included in backups — keep your own copy.</div>
+    <DriveRestore confirmRestore={confirmRestore} onImport={onImport} onClose={onClose}/>
     <input ref={importRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImport}/>
     <div style={{display:"flex",justifyContent:"space-between",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={()=>importRef.current.click()}>📂 Restore from file</button><button style={btn("ghost")} onClick={()=>setShowPaste(p=>!p)}>📋 Paste JSON</button>{showPaste&&<div style={{marginTop:8,padding:8,background:C.bg2,borderRadius:8}}><textarea style={{...S.textarea,fontFamily:"monospace",fontSize:".72rem",minHeight:80,background:C.bg}} placeholder="Paste your JSON backup here..." value={pasteVal} onChange={e=>setPasteVal(e.target.value)}/><button style={{...btn("primary"),marginTop:6,width:"100%"}} onClick={handlePasteImport}>✅ Import Pasted JSON</button></div>}
@@ -1249,6 +1401,12 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.actWords,actWords);},[actWords,loaded]);
   useEffect(()=>{if(loaded)storageSet(STORE_KEYS.coachLogs,coachLogs);},[coachLogs,loaded]);
 
+  // ---- Google Drive wiring ----
+  const snapRef=useRef(null);snapRef.current={moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory};
+  Drive.getSnap=()=>{const s=snapRef.current;return {backup:{exportDate:new Date().toISOString(),...s,aboutMe:getAboutMe()},george:buildGeorgeFile(s.tasks,s.projects,s.coachLogs)};};
+  useEffect(()=>{if(!loaded)return;if(driveCfg().connected&&!driveValid()&&Drive.status==="off")driveSet("needs","Tap anywhere to sync with Drive.");},[loaded]);
+  useEffect(()=>{if(!loaded||!driveCfg().connected)return;const t=setTimeout(driveSync,2500);return()=>clearTimeout(t);},[loaded,moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory]);
+  useEffect(()=>{const onTap=()=>{if(driveCfg().connected&&!driveValid()&&Drive.status!=="connecting"&&Date.now()-Drive.lastAuto>5*60*1000)driveConnect();};document.addEventListener("click",onTap,true);return()=>document.removeEventListener("click",onTap,true);},[]);
   const handleUpdateMemory=mem=>{setCoachMemory(mem);saveCoachMemory(mem);};
   const saveCoachLog=(dateKey,type,messages,meta={})=>{setCoachLogs(prev=>{const existing=prev[dateKey]||[];const filtered=existing.filter(l=>l.type!==type);return{...prev,[dateKey]:[...filtered,{type,messages,savedAt:new Date().toISOString(),...meta}]};});if(meta.mood&&type!=="chat"){setMoodData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,mood:meta.mood,words:meta.words||[]}}});}if(meta.phys&&type==="evening"){setActData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,phys:meta.phys}}});}};
   const handleImport=d=>{if(d.tasks)setTasks(d.tasks);if(d.projects)setProjects(d.projects);if(d.moodData)setMoodData(d.moodData);if(d.actData)setActData(d.actData);if(d.moodWords)setMoodWords(d.moodWords);if(d.actWords)setActWords(d.actWords);if(d.coachLogs)setCoachLogs(d.coachLogs);if(d.coachMemory&&Array.isArray(d.coachMemory.insights))handleUpdateMemory(d.coachMemory);if(typeof d.aboutMe==="string"&&d.aboutMe.trim())setAboutMe(d.aboutMe);};
@@ -1267,6 +1425,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
       <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:700,color:C.accent}}>Mo<em style={{color:C.text,fontWeight:400}}>Go</em></div>
       <div style={{display:"flex",gap:6,alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:4,background:C.bg2,border:`1px solid ${C.border}`,borderRadius:20,padding:"3px 10px",fontSize:".75rem",fontWeight:600,color:C.accent}}>🔥 {streak} day streak</div>
+        <DriveChip/>
         <button onClick={()=>{setShowSearch(v=>!v);setSearchQ("");}} style={{...S.btnIcon,fontSize:".72rem",padding:"3px 8px",width:"auto",color:showSearch?C.accent:C.text3,background:showSearch?C.bg2:"transparent"}} title="Search tasks">🔍</button>
         <button onClick={()=>setShowSettings(true)} style={{...S.btnIcon,fontSize:".72rem",padding:"3px 8px",width:"auto",color:C.text3}} title="Settings">⚙️</button><button onClick={()=>setShowExport(true)} style={{...S.btnIcon,fontSize:".72rem",padding:"3px 8px",width:"auto",color:C.text3}} title="Backup / Restore">💾</button>
       </div>
