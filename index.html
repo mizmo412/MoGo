@@ -518,7 +518,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
 }
 
 function TodoTab({tasks,projects,setTasks,setProjects,openTaskId,onOpenedTask}){
-  const [showTask,setShowTask]=useState(false);const [editTask,setEditTask]=useState(null);const [showProj,setShowProj]=useState(false);const [collapsed,setCollapsed]=useState({__recur__:true,__completedProjs__:true});const [confirm,setConfirm]=useState(null);const [addingTo,setAddingTo]=useState(null);const [addingToToday,setAddingToToday]=useState(false);const [progressPrompt,setProgressPrompt]=useState(null);const [nextLater,setNextLater]=useState([]);
+  const [showTask,setShowTask]=useState(false);const [editTask,setEditTask]=useState(null);const [showProj,setShowProj]=useState(false);const [collapsed,setCollapsed]=useState({__recur__:true,__waiting__:true,__completedProjs__:true});const [confirm,setConfirm]=useState(null);const [addingTo,setAddingTo]=useState(null);const [addingToToday,setAddingToToday]=useState(false);const [progressPrompt,setProgressPrompt]=useState(null);const [nextLater,setNextLater]=useState([]);
   const active=tasks.filter(t=>!t.doneDate);
   useEffect(()=>{if(!openTaskId)return;const t=tasks.find(x=>x.id===openTaskId);if(t){setEditTask(t);setAddingTo(null);setAddingToToday(false);setShowTask(true);}if(onOpenedTask)onOpenedTask();},[openTaskId]);
   const _todayActive=active.filter(t=>t.today).filter(t=>t.progressedOn!==todayDS()).sort(capsSort);
