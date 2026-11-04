@@ -1631,8 +1631,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
   useEffect(()=>{const v=()=>{if(document.visibilityState==="visible")geoSeenAt.current=Date.now();};document.addEventListener("visibilitychange",v);return()=>document.removeEventListener("visibilitychange",v);},[]);
   useEffect(()=>{if(!loaded)return;if(geoN>geoPrevN.current&&Date.now()-geoSeenAt.current<2*60*1000)setGeorgeOpen(true);if(geoN===0)setGeorgeOpen(false);geoPrevN.current=geoN;},[loaded,geoN]);
   // ---- Undo: remembers the last 10 changes to tasks/projects (this visit only; nothing extra is saved) ----
-  const undoRef=useRef({hist:[],prev:null,undoing:false,lastAt:0,readyAt:0});const [undoMsg,setUndoMsg]=useState(null);const undoTimer=useRef(null);
-  const showUndo=msg=>{setUndoMsg(msg);clearTimeout(undoTimer.current);undoTimer.current=setTimeout(()=>setUndoMsg(null),10000);};
+  const undoRef=useRef({hist:[],prev:null,undoing:false,lastAt:0,readyAt:0});const [undoN,setUndoN]=useState(0);
   useEffect(()=>{if(loaded)undoRef.current.readyAt=Date.now()+2500;},[loaded]);
   useEffect(()=>{if(!loaded)return;const u=undoRef.current;const cur={tasks,projects};
     if(!u.prev||Date.now()<u.readyAt||u.undoing){u.prev=cur;u.undoing=false;return;}
@@ -1641,9 +1640,8 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
     if(uiOnly){u.prev=cur;return;} // just opening/closing a project — no Undo needed
     const now=Date.now();
     if(now-u.lastAt<1000&&u.hist.length){/* same action, still settling — keep the earlier "before" */}else{u.hist.push({before:u.prev,label:describeChange(u.prev,cur)});if(u.hist.length>10)u.hist.shift();}
-    u.lastAt=now;u.prev=cur;showUndo(u.hist[u.hist.length-1].label);},[loaded,tasks,projects]);
-  const doUndo=()=>{const u=undoRef.current;const step=u.hist.pop();if(!step)return;u.undoing=true;u.lastAt=0;setTasks(step.before.tasks);setProjects(step.before.projects);
-    if(u.hist.length)showUndo("Undid: "+step.label);else{setUndoMsg("Undid: "+step.label);clearTimeout(undoTimer.current);undoTimer.current=setTimeout(()=>setUndoMsg(null),4000);}};
+    u.lastAt=now;u.prev=cur;setUndoN(u.hist.length);},[loaded,tasks,projects]);
+  const doUndo=()=>{const u=undoRef.current;const step=u.hist.pop();if(!step)return;u.undoing=true;u.lastAt=0;setTasks(step.before.tasks);setProjects(step.before.projects);setUndoN(u.hist.length);};
   // Missing moods: for past days (last 30) where you talked with Kate but didn't pick a mood, Kate guesses one
   const guessTried=useRef(new Set());
   useEffect(()=>{if(!loaded||!getApiKey())return;let stop=false;const t=setTimeout(async()=>{
@@ -1671,6 +1669,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
       <div style={{display:"flex",gap:6,alignItems:"center"}}>
         <div style={{display:"flex",alignItems:"center",gap:4,background:C.bg2,border:`1px solid ${C.border}`,borderRadius:20,padding:"3px 10px",fontSize:".75rem",fontWeight:600,color:C.accent}}>🔥 {streak} day streak</div>
         <DriveChip/>
+        {undoN>0&&<button onClick={doUndo} style={{...S.btnIcon,fontSize:".72rem",padding:"3px 8px",width:"auto",color:C.text2}} title={"Undo: "+(undoRef.current.hist[undoRef.current.hist.length-1]||{}).label}>↶</button>}
         <button onClick={()=>{setShowSearch(v=>!v);setSearchQ("");}} style={{...S.btnIcon,fontSize:".72rem",padding:"3px 8px",width:"auto",color:showSearch?C.accent:C.text3,background:showSearch?C.bg2:"transparent"}} title="Search tasks">🔍</button>
         <button onClick={()=>setShowSettings(true)} style={{...S.btnIcon,fontSize:".72rem",padding:"3px 8px",width:"auto",color:C.text3}} title="Settings">⚙️</button><button onClick={()=>setShowExport(true)} style={{...S.btnIcon,fontSize:".72rem",padding:"3px 8px",width:"auto",color:C.text3}} title="Backup / Restore">💾</button>
       </div>
@@ -1705,10 +1704,6 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
     </div>
     {moodModal&&<MoodModal dateKey={moodModal} moodData={moodData} moodWords={moodWords} tasks={tasks} coachLogs={coachLogs} onSave={saveMood} onClose={()=>setMoodModal(null)} onAddWord={handleAddWord} onSaveLog={saveCoachLog} setTasks={setTasks} onReopenTask={id=>setTasks(prev=>prev.map(t=>t.id===id?{...t,doneDate:null}:t))} projects={projects}/>}
     {wordModal&&<WordModal onSave={saveWord} onClose={()=>setWordModal(null)}/>}
-    {undoMsg&&<div style={{position:"fixed",left:12,right:12,bottom:14,zIndex:450,display:"flex",justifyContent:"center",pointerEvents:"none"}}><div style={{pointerEvents:"auto",display:"flex",alignItems:"center",gap:10,background:"#3b352c",color:"#fff",borderRadius:22,padding:"7px 8px 7px 14px",boxShadow:"0 4px 14px rgba(0,0,0,.25)",maxWidth:480,fontSize:".8rem"}}>
-      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{undoMsg}</span>
-      {undoRef.current.hist.length>0&&<button onClick={doUndo} style={{background:"#fff",color:"#3b352c",border:"none",borderRadius:16,padding:"4px 12px",fontWeight:700,fontSize:".8rem",cursor:"pointer",flexShrink:0}}>↶ Undo</button>}
-      <button onClick={()=>setUndoMsg(null)} style={{background:"none",border:"none",color:"#ccc",cursor:"pointer",fontSize:".9rem",padding:"0 4px"}} title="Hide">✕</button></div></div>}
     {georgeOpen&&geoN>0&&<GeorgeScreen tasks={tasks} projects={projects} setTasks={setTasks} setProjects={setProjects} onClose={()=>setGeorgeOpen(false)}/>}
     {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)}/> }{showExport&&<ExportModal moodData={moodData} actData={actData} tasks={tasks} projects={projects} moodWords={moodWords} actWords={actWords} coachLogs={coachLogs} coachMemory={coachMemory} onClose={()=>setShowExport(false)} onImport={handleImport}/>}
   </div>);
