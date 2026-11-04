@@ -58,6 +58,13 @@ const STALE_DAYS={A:7,B:10};
 // Scheduled tasks (When = Scheduled) use schedDate; everything else uses dueDate
 const schedOf=t=>t.priority==="S"&&t.schedDate?t.schedDate:null;
 const effDate=t=>{const a=t.dueDate||null,b=schedOf(t);if(a&&b)return a<b?a:b;return a||b;};
+// List order (11/04/26): This week (overdue or dated within 7 days) → Available → Scheduled within a month → Soon → Scheduled later → Someday
+const dsPlus=n=>{const d=new Date();d.setDate(d.getDate()+n);return toDS(d.getFullYear(),d.getMonth(),d.getDate());};
+const LIST_GROUPS=["W","A","S1","B","S2","C"];
+const listGroup=t=>{const d=effDate(t);if(d&&d<=dsPlus(7))return "W";if(t.priority==="S"){const s=t.schedDate;return (!s||s<=dsPlus(30))?"S1":"S2";}return t.priority==="B"?"B":t.priority==="C"?"C":"A";};
+// Inside a group: ALL CAPS first, then dated within a month (earliest first), then undated, then dated later
+const listRank=t=>{const d=effDate(t);return !d?1:d<=dsPlus(30)?0:2;};
+const listSort=(a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ra=listRank(a),rb=listRank(b);if(ra!==rb)return ra-rb;const ad=effDate(a),bd=effDate(b);if(ad&&bd&&ad!==bd)return ad<bd?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;};
 function isStale(task){
   if(task.doneDate||task.waiting||task.inProgress)return false;
   if(!STALE_DAYS[task.priority])return false;
@@ -154,6 +161,27 @@ function setAboutMe(v){localStorage.setItem("wh_about_me_v6",v);}
 function nowStamp(){const n=new Date();return n.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})+", "+n.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});}
 // Coach task suggestions: pull out [[TASK: ...]] lines so they show as buttons instead of text
 function splitCoachTasks(text){const tasks=[];const clean=(text||"").replace(/\[\[TASK:\s*([^\]]+?)\s*\]\]/gi,(m,t)=>{tasks.push(t.trim());return "";}).replace(/\n{3,}/g,"\n\n").trim();return{clean,tasks};}
+// Short description of a change, for the Undo bar
+function describeChange(a,b){
+  const q=s=>"“"+(s.length>34?s.slice(0,32)+"…":s)+"”";
+  const am=new Map(a.tasks.map(t=>[t.id,t])),bm=new Map(b.tasks.map(t=>[t.id,t]));
+  const added=b.tasks.filter(t=>!am.has(t.id)),gone=a.tasks.filter(t=>!bm.has(t.id));
+  const done=b.tasks.filter(t=>am.has(t.id)&&t.doneDate&&!am.get(t.id).doneDate);
+  if(done.length)return "Checked off "+q(done[0].title)+(done.length>1?" + "+(done.length-1)+" more":"");
+  if(gone.length&&!added.length)return "Deleted "+q(gone[0].title)+(gone.length>1?" + "+(gone.length-1)+" more":"");
+  if(added.length&&!gone.length)return "Added "+q(added[0].title)+(added.length>1?" + "+(added.length-1)+" more":"");
+  const ch=b.tasks.find(t=>am.has(t.id)&&am.get(t.id)!==t);
+  if(ch){const o=am.get(ch.id);if(ch.today&&!o.today)return "Moved "+q(ch.title)+" to Today";if(!ch.today&&o.today)return "Took "+q(ch.title)+" off Today";return "Changed "+q(ch.title);}
+  if(!added.length&&!gone.length&&a.tasks.length===b.tasks.length&&a.tasks.some((t,i)=>b.tasks[i]!==t))return "Reordered tasks";
+  const pa=new Map(a.projects.map(p=>[p.id,p]));const pc=b.projects.find(p=>pa.get(p.id)!==p);if(pc)return "Changed project "+q(pc.name);
+  return "Change";}
+// Kate fills in a missing mood from that day's conversation (one short call per day; never replaces a mood you picked)
+async function kateGuessMood(convo){
+  const apiKey=getApiKey();if(!apiKey)return null;
+  try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true","x-api-key":apiKey},
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:5,system:"You read one day's conversation between a user and her coach Kate, and judge how the user's day felt overall. Reply with exactly one word: great, good, okay, or hard.",messages:[{role:"user",content:convo.slice(0,6000)}]})});
+    if(!r.ok)return null;const j=await r.json();const w=((j.content||[]).map(c=>c.text||"").join(" ").toLowerCase().match(/\b(great|good|okay|ok|hard)\b/)||[])[1];return w==="ok"?"okay":(w||null);}catch(e){return null;}}
+function dayConvo(logs){return (logs||[]).flatMap(l=>(l.messages||[])).filter(m=>m&&m.content&&m.content!=="__pending__").map(m=>(m.role==="user"?"User: ":"Kate: ")+m.content).join("\n");}
 async function askCoach(messages,ctx=""){
   const about=getAboutMe().trim();
   const sys=COACH_SYS+"\n\nCurrent date and time: "+nowStamp()+"."+(about?"\n\nAbout the user:\n"+about:"")+(ctx?"\n\nUser data:\n"+ctx:"");
@@ -199,7 +227,7 @@ function MoodCalendar({moodData,tasks,coachLogs,onDayClick}){
   const nav=d=>setCal(c=>{let m=c.m+d,y=c.y;if(m<0){m=11;y--;}if(m>11){m=0;y++;}return{y,m};});
   const firstDay=new Date(cal.y,cal.m,1).getDay();const dim=new Date(cal.y,cal.m+1,0).getDate();const todS=todayDS();
   let great=0,good=0,okay=0,hard=0;
-  for(let d=1;d<=dim;d++){const e=moodData[toDS(cal.y,cal.m,d)];if(e){if(e.mood==="great")great++;else if(e.mood==="good")good++;else if(e.mood==="okay")okay++;else hard++;}}
+  for(let d=1;d<=dim;d++){const e=moodData[toDS(cal.y,cal.m,d)];if(e){if(e.mood==="great")great++;else if(e.mood==="good")good++;else if(e.mood==="okay")okay++;else if(e.mood==="hard")hard++;}}
   const mCol={great:{bg:C.mgr2,border:C.mgr},good:{bg:C.mg2,border:C.mg},okay:{bg:C.mo2,border:C.mo},hard:{bg:C.mh2,border:C.mh}};
   const mEm={great:"😊",good:"🙂",okay:"😐",hard:"😩"};
   return(<div>
@@ -223,10 +251,10 @@ function MoodCalendar({moodData,tasks,coachLogs,onDayClick}){
       {Array(firstDay).fill(null).map((_,i)=><div key={"e"+i}/>)}
       {Array(dim).fill(null).map((_,i)=>{
         const d=i+1,key=toDS(cal.y,cal.m,d),ent=moodData[key],dot=tasks.filter(t=>t.doneDate===key||t.completedOn===key).length,hasLog=(coachLogs[key]||[]).length>0;
-        const col=ent?mCol[ent.mood]:null;
-        return <div key={d} onClick={()=>onDayClick(key)} style={{borderRadius:6,border:`1px solid ${col?col.border:C.border}`,background:col?col.bg:C.bg2,cursor:"pointer",position:"relative",minHeight:52,transition:"all .15s"}}>
+        const col=ent?mCol[ent.mood]:null;const guess=!!(ent&&ent.inferred);
+        return <div key={d} onClick={()=>onDayClick(key)} title={guess?"Kate's guess from your conversation":undefined} style={{borderRadius:6,border:`1px ${guess?"dashed":"solid"} ${col?col.border:C.border}`,background:col?(guess?col.bg+"88":col.bg):C.bg2,cursor:"pointer",position:"relative",minHeight:52,transition:"all .15s"}}>
           <div style={{fontSize:".73rem",padding:"3px 5px",fontWeight:key===todS?700:400,color:key===todS?C.accent:C.text}}>{d}</div>
-          {ent&&<div style={{fontSize:".95rem",padding:"1px 0 0 4px"}}>{mEm[ent.mood]}</div>}
+          {ent&&<div style={{fontSize:".95rem",padding:"1px 0 0 4px",opacity:guess?.5:1}}>{mEm[ent.mood]}</div>}
           {dot>0&&<div style={{position:"absolute",bottom:2,right:3,fontSize:".58rem",color:C.text3,fontWeight:700}}>✓{dot}</div>}
           {hasLog&&<div style={{position:"absolute",top:2,right:3,fontSize:".65rem"}}>💬</div>}
         </div>;
@@ -273,32 +301,34 @@ function CoachLogAddon({log,dateKey,onSaveLog,customLabel,setTasks,tasks}){
   </details>);
 }
 
-function MoodModal({dateKey,moodData,moodWords,tasks,coachLogs,onSave,onClose,onAddWord,onSaveLog,setTasks,onReopenTask}){
+function MoodModal({dateKey,moodData,moodWords,tasks,coachLogs,onSave,onClose,onAddWord,onSaveLog,setTasks,onReopenTask,projects}){
+  const [editDone,setEditDone]=useState(null);
   const ent=moodData[dateKey]||{};const [mood,setMood]=useState(ent.mood||"");const [words,setWords]=useState(ent.words||[]);const [notes,setNotes]=useState(ent.notes||"");
   const parts=dateKey.split("-");const label=`${MONTHS[parseInt(parts[1])-1]} ${parseInt(parts[2])}, ${parts[0]}`;
   const completed=tasks.filter(t=>t.doneDate===dateKey||(t.doneDate==="trivial"&&t.completedOn===dateKey));
   const opts=[{em:"😊",lb:"Great",v:"great",bg:C.mgr2,border:C.mgr,color:"#2d6b2d"},{em:"🙂",lb:"Good",v:"good",bg:C.mg2,border:C.mg,color:"#2d6b2d"},{em:"😐",lb:"OK",v:"okay",bg:C.mo2,border:C.mo,color:"#6a5010"},{em:"😩",lb:"Ugh",v:"hard",bg:C.mh2,border:C.mh,color:"#803028"}];
   return(<div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e=>e.stopPropagation()}>
-    <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:16}}>Mood — {label}</div>
+    <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:ent.inferred?4:16}}>Mood — {label}</div>
+    {ent.inferred&&<div style={{fontSize:".76rem",color:C.text3,fontStyle:"italic",marginBottom:12}}>Kate guessed this from your conversation. Tap a mood and Save to make it yours.</div>}
     <FormRow label="How did today feel?"><div style={{display:"flex",gap:8}}>{opts.map(o=><MoodOpt key={o.v} emoji={o.em} label={o.lb} selected={mood===o.v} bg={o.bg} border={o.border} color={o.color} onClick={()=>setMood(o.v)}/>)}</div></FormRow>
-    <FormRow label="Words that fit"><ChipsEditor wordList={moodWords} selected={words} onChange={setWords} onAddWord={()=>onAddWord("mood",words,setWords)}/></FormRow>
     <FormRow label="Notes"><textarea style={S.textarea} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything on your mind…"/></FormRow>
-    {completed.length>0&&<div style={{marginTop:8}}><span style={S.secLbl}>Completed this day</span><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{completed.map(t=><span key={t.id} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",background:C.bg2,borderRadius:10,fontSize:".74rem",border:`1px solid ${C.border}`,color:C.text2}}>✓ {t.title}<button onClick={()=>onReopenTask&&onReopenTask(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.text3,fontSize:".8rem",padding:0}}>↩</button></span>)}</div></div>}
+    {completed.length>0&&<div style={{marginTop:8}}><span style={S.secLbl}>Completed this day</span><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{completed.map(t=><span key={t.id} onClick={()=>setEditDone(t)} title="Tap to edit" style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",background:C.bg2,borderRadius:10,fontSize:".74rem",border:`1px solid ${C.border}`,color:C.text2,cursor:"pointer"}}>✓ {t.title}</span>)}</div></div>}
     {(coachLogs[dateKey]||[]).length>0&&<div style={{marginTop:12}}><span style={S.secLbl}>💬 Kate Conversations</span>{(coachLogs[dateKey]||[]).map((log,li)=><CoachLogAddon key={li} log={log} dateKey={dateKey} onSaveLog={onSaveLog} setTasks={setTasks} tasks={tasks}/>)}</div>}
     <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={onClose}>Cancel</button>
       <button style={btn("primary")} onClick={()=>{if(!mood){alert("Please choose how today felt.");return;}onSave(dateKey,{mood,words,notes});}}>Save</button>
     </div>
+    {editDone&&<TaskModal heading="Edit completed task" task={editDone} projects={projects||[]} defaultProjectId={editDone.projectId||"misc"} onSave={data=>{setTasks(prev=>prev.map(t=>t.id===editDone.id?{...t,...data,completedOn:data.doneDate?t.completedOn:undefined}:t));setEditDone(null);}} onClose={()=>setEditDone(null)}/>}
   </div></div>);
 }
 
 function WordModal({onSave,onClose}){const [val,setVal]=useState("");return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:320}} onClick={e=>e.stopPropagation()}><div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:14}}>Add a Word</div><input style={S.input} value={val} onChange={e=>setVal(e.target.value)} placeholder="e.g. Grateful, Restless…" maxLength={30} autoFocus onKeyDown={e=>e.key==="Enter"&&val.trim()&&onSave(val.trim())}/><div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}><button style={btn("ghost")} onClick={onClose}>Cancel</button><button style={btn("primary")} onClick={()=>val.trim()&&onSave(val.trim())}>Add</button></div></div></div>);}
 
-function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,onDelete,lastDone,onCreateProject}){
+function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,onDelete,lastDone,onCreateProject,heading}){
   const [newProj,setNewProj]=useState(null);
   const [title,setTitle]=useState(task?.title||"");const [notes,setNotes]=useState(task?.notes||"");const [pri,setPri]=useState(task?.priority||"A");const [schedDate,setSchedDate]=useState(task?.schedDate||"");const [projId,setProjId]=useState(task?.projectId||defaultProjectId||"misc");
   const [waiting,setWaiting]=useState(!!task?.waiting);const [waitingOn,setWaitingOn]=useState(task?.waitingOn||"");
-  const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [markComplete,setMarkComplete]=useState(false);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const [recurMode,setRecurMode]=useState(task?.recurMode||"flex");const [recalcNote,setRecalcNote]=useState("");
+  const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [markComplete,setMarkComplete]=useState(!!task?.doneDate);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const [recurMode,setRecurMode]=useState(task?.recurMode||"flex");const [recalcNote,setRecalcNote]=useState("");
   // Changing how often a task repeats recalculates the next date from the last time it was done
   const recurFirst=useRef(true);
   useEffect(()=>{if(recurFirst.current){recurFirst.current=false;return;}if(recur&&!isManualRecur(recur)&&lastDone){setDueDate(addInterval(lastDone,recur));setRecalcNote(`Recalculated from last done: ${fmtDueDate(lastDone)}`);}else setRecalcNote("");},[recur]);const progressLog=task?.progressLog||[];
@@ -310,11 +340,11 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
         const dd=opts.dueOverride!==undefined?opts.dueOverride:dueDate;
         if(!opts.skipConflict&&!recur&&pri==="S"&&schedDate&&dd&&schedDate>dd){setSchedConflict(true);return;}
         const newLog=[...(progressNote.trim()?[...progressLog,{date:todayDS(),note:progressNote.trim()}]:progressLog),...(completeNote.trim()?[{date:todayDS(),note:"[Complete] "+completeNote.trim()}]:[])];
-        const doneVal=markComplete?todayDS():undefined;
-        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dd?(dd<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:undefined,progressLog:newLog.length?newLog:undefined,dueDate:dd||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dd&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?todayDS():undefined,onDeck:waiting?task?.onDeck:undefined});
+        const doneVal=markComplete?(task?.doneDate||todayDS()):undefined;
+        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dd?(dd<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:undefined,progressLog:newLog.length?newLog:undefined,dueDate:dd||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dd&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?(task?.doneDate?(task.completedOn||task.doneDate):todayDS()):undefined,onDeck:waiting?task?.onDeck:undefined});
   };
   return(<div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e=>e.stopPropagation()}>
-    <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:16}}>{task?"Edit Task":"Add Task"}</div>
+    <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:16}}>{heading||(task?"Edit Task":"Add Task")}</div>
     <FormRow label="Task Title"><input style={S.input} value={title} onChange={e=>setTitle(e.target.value)} placeholder="What needs to be done?" autoFocus/></FormRow>
     <FormRow label="Project">{newProj===null
       ?<select style={S.select} value={projId} onChange={e=>{if(e.target.value==="__new__"){setNewProj("");return;}setProjId(e.target.value);}}>{projects.filter(p=>!p.completed||p.id===projId).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}{onCreateProject&&<option value="__new__">＋ New project…</option>}</select>
@@ -431,7 +461,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
   stateRef.current.tasks=priTasks;
   // Keep latest reorder function in a ref so the touch listeners don't get torn down mid-drag
   const reorderRef=useRef(reorderTasks);reorderRef.current=reorderTasks;
-  const pc=priCol[pri];const isSub=pri==="B"||pri==="C"||pri==="S";
+  const pc=priCol[pri]||priCol.A;const isSub=!["A","W","S1"].includes(pri);
 
   useEffect(()=>{
     const container=containerRef.current;
@@ -518,7 +548,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
   </div>);
 }
 
-function TodoTab({tasks,projects,setTasks,setProjects,openTaskId,onOpenedTask}){
+function TodoTab({tasks,projects,setTasks,setProjects,openTaskId,onOpenedTask,onReviewGeorge}){
   const [showTask,setShowTask]=useState(false);const [editTask,setEditTask]=useState(null);const [showProj,setShowProj]=useState(false);const [collapsed,setCollapsed]=useState({__recur__:true,__waiting__:true,__completedProjs__:true});const [confirm,setConfirm]=useState(null);const [addingTo,setAddingTo]=useState(null);const [addingToToday,setAddingToToday]=useState(false);const [progressPrompt,setProgressPrompt]=useState(null);const [nextLater,setNextLater]=useState([]);
   const active=tasks.filter(t=>!t.doneDate);
   useEffect(()=>{if(!openTaskId)return;const t=tasks.find(x=>x.id===openTaskId);if(t){setEditTask(t);setAddingTo(null);setAddingToToday(false);setShowTask(true);}if(onOpenedTask)onOpenedTask();},[openTaskId]);
@@ -527,7 +557,7 @@ function TodoTab({tasks,projects,setTasks,setProjects,openTaskId,onOpenedTask}){
   const _todayDone=tasks.filter(t=>t.completedOn===todayDS()&&t.doneDate);
   const todayTasks=[..._todayActive,..._todayProgressed,..._todayDone];
   const saveTask=data=>{const isToday=addingToToday;const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();const shouldBeToday=(()=>{if(!isToday)return false;if(data.priority==="A"&&data.projectId==="misc")return true;if(data.dueDate){const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);return data.dueDate<=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());}return false;})();setTasks(prev=>{const updated=editTask?prev.map(t=>{if(t.id!==editTask.id)return t;const hadProgress=t.progressLog?.length||0;const hasNewProgress=data.progressLog?.length>hadProgress;const setProgressed=data.inProgress&&hasNewProgress?{progressedOn:todayDS()}:{};const futureSched=data.priority==="S"&&data.schedDate&&data.schedDate>todayDS()?{today:undefined,returnOn:undefined}:{};return{...t,...data,...setProgressed,...futureSched,completedTime:data.doneDate?compTime:t.completedTime};}):[...prev,{id:uid(),...data,addedDate:todayDS(),doneDate:data.doneDate||null,today:shouldBeToday?true:undefined}];// If completing a recurring task, create next instance
-if(editTask&&data.doneDate&&(data.recur||editTask.recur)){const next=spawnNext({...editTask,...data});if(next)return[...updated,next];}return updated;});setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);};
+if(editTask&&data.doneDate&&!editTask.doneDate&&(data.recur||editTask.recur)){const next=spawnNext({...editTask,...data});if(next)return[...updated,next];}return updated;});setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);};
   const completeTask=id=>{const task=tasks.find(t=>t.id===id);if(task?.inProgress){if(task.progressedOn===todayDS()){// Toggle off — uncheck progress for today
 setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:undefined}:x));return;}setProgressPrompt(task);return;}else{setTasks(prev=>{const updated=prev.map(x=>x.id===id?{...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})(),today:undefined}:x);const origTask=prev.find(x=>x.id===id);const next=spawnNext(origTask);if(next)return[...updated,next];return updated;});}};
   const handleProgressLog=(id,note,complete,followUpDate)=>{const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();setTasks(prev=>{let nextT=null;const upd=prev.map(x=>{if(x.id!==id)return x;const newLog=[...(x.progressLog||[]),{date:todayDS(),note:note.trim()}];if(complete){const doneX={...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:compTime,inProgress:undefined,progressLog:newLog};nextT=spawnNext({...x,progressLog:newLog});return doneX;}if(followUpDate){return{...x,progressLog:newLog,dueDate:followUpDate,waiting:true,today:true,progressedOn:todayDS(),onDeck:true};}return{...x,progressLog:newLog,today:true,progressedOn:todayDS()};});return nextT?[...upd,nextT]:upd;});setProgressPrompt(null);};
@@ -571,7 +601,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
   const projContainerRef=useRef(null);
   const projTouch=useRef({idx:null,ghost:null,startY:0,rowEls:[],handleEls:[],list:[]});
   projTouch.current.list=visibleProjs;
-  const priLabel={A:"Available",B:"Soon",S:"Scheduled",C:"Someday"};const priCol={A:{bg:"#fde8e7",color:C.pa},B:{bg:"#fef3e2",color:C.pb},S:{bg:"#e3edf7",color:"#3a6a98"},C:{bg:"#e8f4e6",color:C.pc}};
+  const priLabel={W:"This week",A:"Available",B:"Soon",S:"Scheduled",S1:"Scheduled",S2:"Scheduled later",C:"Someday"};const priCol={W:{bg:"#fde0d0",color:"#a0401c"},A:{bg:"#fde8e7",color:C.pa},B:{bg:"#fef3e2",color:C.pb},S:{bg:"#e3edf7",color:"#3a6a98"},S1:{bg:"#e3edf7",color:"#3a6a98"},S2:{bg:"#e3edf7",color:"#3a6a98"},C:{bg:"#e8f4e6",color:C.pc}};
   const dragRef=useRef({idx:null,projId:null,pri:null});
   const todayDragRef=useRef({idx:null});
   const recurDragRef=useRef({idx:null});
@@ -694,7 +724,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
   };
   const renderProjCard=(proj,idx)=>{
 
-      const pt=active.filter(t=>t.projectId===proj.id);const isOpen=proj.parked?(collapsed[proj.id]===true):!collapsed[proj.id];
+      const pt=active.filter(t=>t.projectId===proj.id);const isOpen=proj.ui==="open"?true:proj.ui==="closed"?false:proj.parked?(collapsed[proj.id]===true):!collapsed[proj.id];
       return(<div key={proj.id} ref={el=>{if(idx>=0)projTouch.current.rowEls[idx]=el;}} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,marginBottom:12,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px 7px 6px",background:proj.completed?"#e8f4e6":C.bg2,userSelect:"none"}}>
           {proj.id!=="misc"&&<span ref={el=>{if(idx>=0)projTouch.current.handleEls[idx]=el;}} style={{color:C.text3,fontSize:"1rem",cursor:"grab",userSelect:"none",WebkitUserSelect:"none",touchAction:"none",padding:"4px 4px 4px 4px"}} title="Drag to reorder">⠿</span>}
@@ -702,7 +732,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
           :<span style={{cursor:"pointer",fontSize:"1rem",padding:"2px 2px"}} onClick={e=>{e.stopPropagation();setProjects(prev=>prev.map(p=>p.id!==proj.id?p:{...p,parked:!p.parked}));}} title={proj.parked?"Make active":"Park project"}>{proj.completed?"✅":proj.parked?"🅿️":"🟢"}</span>}
           {renameId===proj.id
             ?<span style={{flex:1,display:"flex",gap:4,alignItems:"center",marginLeft:4}} onClick={e=>e.stopPropagation()}><input autoFocus style={{...S.input,padding:"4px 8px",fontSize:"16px"}} value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(proj.id);}}/><button style={{...S.btnIcon,width:30}} onClick={()=>saveRename(proj.id)} title="Save name">✓</button><button style={{...S.btnIcon,width:30}} onClick={()=>setRenameId(null)} title="Cancel">✕</button></span>
-            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:0,cursor:"pointer"}} onClick={()=>setCollapsed(c=>({...c,[proj.id]:proj.parked?(c[proj.id]!==true):!c[proj.id]}))}>{proj.name}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
+            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:0,cursor:"pointer"}} onClick={()=>{if(proj.id==="misc"){setCollapsed(c=>({...c,[proj.id]:!c[proj.id]}));return;}setProjects(prev=>prev.map(p=>p.id===proj.id?{...p,ui:isOpen?"closed":"open"}:p));}}>{proj.name}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
           {proj.completed?<span style={{fontSize:".75rem",color:C.pc,fontWeight:600}}>Completed {proj.completedOn}</span>:<span style={{fontSize:".75rem",color:C.text3}}>{pt.length} task{pt.length!==1?"s":""}</span>}
           {!proj.completed&&<button style={{...S.btnIcon,marginLeft:4,background:C.accent,borderColor:C.accent,color:"#fff",fontSize:".72rem",fontWeight:600,width:"auto",padding:"0 10px",height:26}} onClick={e=>{e.stopPropagation();setEditTask(null);setAddingTo(proj.id);setAddingToToday(false);setShowTask(true);}}>+ Task</button>}
           {proj.id!=="misc"&&!isOpen&&<button style={{...S.btnIcon,marginLeft:2}} onClick={e=>{e.stopPropagation();setConfirm({type:"project",id:proj.id,name:proj.name});}}>🗑</button>}
@@ -710,13 +740,13 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
         {isOpen&&<div style={{padding:"4px 10px"}}>
           {pt.length===0&&!proj.completed&&<div style={{color:C.text3,fontSize:".83rem",padding:"4px 0"}}>No tasks yet.</div>}
           {proj.completed&&pt.length===0&&<div style={{color:C.text3,fontSize:".83rem",padding:"4px 0",fontStyle:"italic"}}>All tasks completed.</div>}
-          {["A","S","B","C"].map(pri=>{
-            const priTasks=pt.filter(t=>t.priority===pri&&!t.recur&&!t.doneDate).slice().sort((a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ad=effDate(a),bd=effDate(b);const aHas=!!ad,bHas=!!bd;if(aHas&&!bHas)return-1;if(!aHas&&bHas)return 1;if(aHas&&bHas&&ad!==bd)return ad<bd?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;});
+          {LIST_GROUPS.map(pri=>{
+            const priTasks=pt.filter(t=>!t.recur&&!t.doneDate&&listGroup(t)===pri).slice().sort(listSort);
             if(!priTasks.length)return null;
             return <PriorityGroup key={pri} projId={proj.id} pri={pri} priTasks={priTasks} priLabel={priLabel} priCol={priCol} completeTask={completeTask} setEditTask={setEditTask} setShowTask={setShowTask} addToToday={addToToday} removeFromToday={removeFromToday} reorderTasks={reorderTasks} isParked={!!proj.parked} setTasks={setTasks}/>;
           })}
         {isOpen&&(()=>{
-          const recurProjTasks=pt.filter(t=>t.recur&&!t.doneDate);
+          const recurProjTasks=pt.filter(t=>t.recur&&!t.doneDate).slice().sort((a,b)=>{if(!a.dueDate&&!b.dueDate)return 0;if(!a.dueDate)return 1;if(!b.dueDate)return -1;return a.dueDate<b.dueDate?-1:a.dueDate>b.dueDate?1:0;});
           if(!recurProjTasks.length)return null;
           const recurKey=proj.id+"__recur__";
           const recurOpen=collapsed[recurKey]===true;
@@ -739,6 +769,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
       </div>);
   };
   return(<div>
+    <GeorgeBar onReview={onReviewGeorge}/>
     <div style={{background:`linear-gradient(135deg,${C.td2},${C.bg2})`,border:`1.5px solid #D4A820`,borderRadius:14,marginBottom:18,overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px"}}>
         <span style={{fontSize:"1.1rem"}}>🌅</span><span style={{fontFamily:"Georgia,serif",fontWeight:700,fontSize:"1rem",flex:1}}>Today</span>
@@ -834,8 +865,8 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
     </div>);})()}
     {(()=>{const recurTasks=active.filter(t=>t.recur).slice().sort((a,b)=>{
   if(!a.dueDate&&!b.dueDate)return 0;
-  if(!a.dueDate)return -1;
-  if(!b.dueDate)return 1;
+  if(!a.dueDate)return 1;
+  if(!b.dueDate)return -1;
   if(a.dueDate!==b.dueDate)return a.dueDate<b.dueDate?-1:1;
   // Same date — sort by frequency (most frequent first)
   const freq=r=>{if(!r)return 9999;if(r==="daily")return 1;if(r==="weekly")return 7;if(r==="biweekly")return 14;if(r==="monthly")return 30;if(r.startsWith("custom:")){const[,n,unit]=r.split(":");const num=parseInt(n)||1;if(unit==="days")return num;if(unit==="weeks")return num*7;if(unit==="months")return num*30;if(unit==="years")return num*365;if(unit==="manual")return 9998;}return 9999;};
@@ -981,7 +1012,7 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
   if(!type)return null;
   const cfg=CI[type];const isEvening=type==="evening";
   const moodOpts=[{v:"great",em:"😊",lb:"Great"},{v:"good",em:"🙂",lb:"Good"},{v:"okay",em:"😐",lb:"OK"},{v:"hard",em:"😩",lb:"Ugh"}];const actOpts=[{v:"great",em:"💪",lb:"Great"},{v:"okay",em:"🚶",lb:"Okay"},{v:"skip",em:"🛋",lb:"Skipped"}];
-  const saveToCalendars=(m,w,p)=>{if(m&&onSaveMood){const ex=moodData[todayKey]||{};onSaveMood(todayKey,{...ex,mood:m,words:w||[]});}if(isEvening&&p&&onSaveAct){const ex=actData[todayKey]||{};onSaveAct(todayKey,{...ex,phys:p});}};
+  const saveToCalendars=(m,w,p)=>{if(m&&onSaveMood){const ex=moodData[todayKey]||{};onSaveMood(todayKey,{...ex,mood:m,words:w||[],inferred:undefined});}if(isEvening&&p&&onSaveAct){const ex=actData[todayKey]||{};onSaveAct(todayKey,{...ex,phys:p});}};
   const buildCtx=()=>{
     // Mood/activity last 5 days
     const recent=[];for(let i=0;i<5;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood,phys:actData[k]?.phys});}
@@ -997,6 +1028,7 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
     let ctx="Recent mood/activity: "+JSON.stringify(recent)+".\nActive tasks: "+(ts.join(", ")||"none")+".\nCompleted last 7 days: "+(done.join(", ")||"none")+".";
     if(mems)ctx+="\n\n"+mems;
     if(recentChats)ctx+="\n\nRecent conversations:\n"+recentChats;
+    ctx+=geoKateCtx();
     return ctx;};
   const send=async(msg)=>{
     const text=msg||reply.trim();if(!text||loading)return;setReply("");setLoading(true);setError("");setStarted(true);
@@ -1027,7 +1059,6 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
     <div style={{padding:"0 10px 10px"}}>
       {cfg.showMood&&<div style={{display:"flex",gap:6,marginBottom:8}}>{moodOpts.map(o=><button key={o.v} onClick={()=>setMood(o.v)} style={{flex:1,padding:"4px 2px",borderRadius:8,border:`2px solid ${mood===o.v?C.accent:C.border}`,background:mood===o.v?C.accent+"22":"rgba(255,255,255,.7)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}><span style={{fontSize:"1rem"}}>{o.em}</span>{mood===o.v&&<span style={{fontSize:".7rem",color:C.accent,fontWeight:600}}>{o.lb}</span>}</button>)}</div>}
       {isEvening&&<div style={{display:"flex",gap:6,marginBottom:8}}>{actOpts.map(o=><button key={o.v} onClick={()=>setPhys(o.v)} style={{flex:1,padding:"4px 2px",borderRadius:8,border:`2px solid ${phys===o.v?"#7a5010":C.border}`,background:phys===o.v?"#fef3e2":"rgba(255,255,255,.7)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}><span style={{fontSize:"1rem"}}>{o.em}</span>{phys===o.v&&<span style={{fontSize:".7rem",color:"#7a5010",fontWeight:600}}>{o.lb}</span>}</button>)}</div>}
-      {type==="evening"&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>{(moodWords||[]).slice(0,8).map(w=><button key={w} onClick={()=>setWords(ws=>ws.includes(w)?ws.filter(x=>x!==w):[...ws,w])} style={{padding:"3px 10px",borderRadius:12,border:`1px solid ${words.includes(w)?C.accent:C.border}`,background:words.includes(w)?C.accent+"22":"rgba(255,255,255,.7)",fontSize:".76rem",cursor:"pointer",color:words.includes(w)?C.accent:C.text2}}>{w}</button>)}</div>}
       {started&&<div ref={msgsRef} style={{maxHeight:200,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,marginBottom:10,padding:"2px 4px 2px 8px"}}>
         {chatHist.filter(m=>m.content!=="__pending__").map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",width:"100%"}}><div style={{maxWidth:"85%",padding:"8px 12px",fontSize:".85rem",lineHeight:1.52,wordBreak:"break-word",borderRadius:m.role==="user"?"10px 10px 2px 10px":"10px 10px 10px 2px",background:m.role==="user"?C.accent:"rgba(255,255,255,.85)",color:m.role==="user"?"#fff":C.text,border:m.role==="user"?"none":`1px solid ${C.border}`,whiteSpace:"pre-wrap"}}>{m.role==="assistant"?splitCoachTasks(m.content).clean:m.content}{m.role==="assistant"&&<CoachTaskButtons content={m.content} tasks={tasks} setTasks={setTasks}/>}</div></div>)}
         {loading&&<div style={{alignSelf:"flex-start",padding:"8px 12px",borderRadius:"10px 10px 10px 2px",background:"rgba(255,255,255,.85)",border:`1px solid ${C.border}`,fontSize:".85rem",color:C.text3,fontStyle:"italic"}}>Thinking…</div>}
@@ -1093,7 +1124,7 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
   useEffect(()=>{const tl=(coachLogs[todayDS()]||[]).find(l=>l.type==="chat");if(tl)setChatHist(tl.messages);setChatLoaded(true);},[]);
   useEffect(()=>{if(chatLoaded&&chatHist.length>0&&onSaveLog)onSaveLog(todayDS(),"chat",chatHist);},[chatHist,chatLoaded]);
   useEffect(()=>{if(msgsRef.current)msgsRef.current.scrollTop=msgsRef.current.scrollHeight;},[chatHist,chatLoading]);
-  const buildCtx=useCallback(()=>{const recent=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood||null,phys:actData[k]?.phys||null});}const active=tasks.filter(t=>!t.doneDate).slice(0,6).map(t=>`[${t.priority}] ${t.title}`);const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);const sevenDS=toDS(sevenAgo.getFullYear(),sevenAgo.getMonth(),sevenAgo.getDate());const compl=tasks.filter(t=>t.doneDate&&t.doneDate!=="trivial"&&t.doneDate>=sevenDS).slice(-4).map(t=>t.title);const memStr=coachMemory.insights.length>0?"\n\nMemories about the user:\n"+coachMemory.insights.map((m,i)=>`${i+1}. ${m}`).join("\n"):"";const recentLogs=[];Object.entries(coachLogs||{}).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3).forEach(([dk,logs])=>{logs.forEach(log=>{if(log.messages){const notes=log.messages.filter(m=>m.role==="user"&&m.content&&m.content.length>10&&m.content!=="__pending__").map(m=>m.content).join(" / ");if(notes)recentLogs.push(`${dk}: ${notes}`);}});});const logsStr=recentLogs.length>0?"\n\nRecent check-in notes:\n"+recentLogs.join("\n"):"";return`Recent 7 days: ${JSON.stringify(recent)}. Active: ${active.join(", ")||"none"}. Completed: ${compl.join(", ")||"none"}.${logsStr}${memStr}`;},[moodData,actData,tasks,coachMemory]);
+  const buildCtx=useCallback(()=>{const recent=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood||null,phys:actData[k]?.phys||null});}const active=tasks.filter(t=>!t.doneDate).slice(0,6).map(t=>`[${t.priority}] ${t.title}`);const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);const sevenDS=toDS(sevenAgo.getFullYear(),sevenAgo.getMonth(),sevenAgo.getDate());const compl=tasks.filter(t=>t.doneDate&&t.doneDate!=="trivial"&&t.doneDate>=sevenDS).slice(-4).map(t=>t.title);const memStr=coachMemory.insights.length>0?"\n\nMemories about the user:\n"+coachMemory.insights.map((m,i)=>`${i+1}. ${m}`).join("\n"):"";const recentLogs=[];Object.entries(coachLogs||{}).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3).forEach(([dk,logs])=>{logs.forEach(log=>{if(log.messages){const notes=log.messages.filter(m=>m.role==="user"&&m.content&&m.content.length>10&&m.content!=="__pending__").map(m=>m.content).join(" / ");if(notes)recentLogs.push(`${dk}: ${notes}`);}});});const logsStr=recentLogs.length>0?"\n\nRecent check-in notes:\n"+recentLogs.join("\n"):"";return`Recent 7 days: ${JSON.stringify(recent)}. Active: ${active.join(", ")||"none"}. Completed: ${compl.join(", ")||"none"}.${logsStr}${memStr}${geoKateCtx()}`;},[moodData,actData,tasks,coachMemory]);
   const loadInsight=async()=>{setInsightLoading(true);setInsight("Thinking…");setInsightError("");setInsightSecs(0);const timer=setInterval(()=>setInsightSecs(s=>s+1),1000);const ht=setTimeout(()=>{clearInterval(timer);setInsightLoading(false);setInsight("");setInsightError("Timed out — tap Refresh again.");},30000);try{const h=new Date().getHours();const tc=h<12?"morning":h<17?"midday":"evening";const memList=coachMemory?.insights?.length>0?"Known about the user:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";const insightPrompt=`It is ${tc}. You are Kate, the user's personal coach. Using everything you know about them — their recent mood, tasks, and especially these memories: ${memList||"none saved yet"} — give them ONE brief, specific, personal insight or nudge. Reference something real from their life. Do not include any [[TASK:]] lines. 2 sentences max. Do NOT ask about anything already resolved in the memories.`;const txt=await askCoach([{role:"user",content:insightPrompt}],buildCtx());if(txt&&txt.length>20){setInsight(txt);storageSet("wh_insight_today",{date:todayDS(),text:txt});}else{setInsight("");setInsightError("Empty response — tap Refresh to try again.");}}catch(e){setInsight("");setInsightError("Error: "+e.message);}clearInterval(timer);clearTimeout(ht);setInsightLoading(false);};
   useEffect(()=>{if(insightLoadedRef.current)return;insightLoadedRef.current=true;storageGet("wh_insight_today",null).then(saved=>{if(saved&&saved.date===todayDS()&&saved.text&&saved.text.length>20)setInsight(saved.text);else setInsight("Tap Refresh for your check-in insight.");});},[]);
   const doPatterns=async()=>{setPatLoading(true);setPatResult("");setError("");try{const txt=await askCoach([{role:"user",content:"Look at my mood and activity data. What patterns do you see? Be specific and personal."}],buildCtx());setPatResult(txt);}catch(e){setError(e.message);}setPatLoading(false);};
@@ -1239,6 +1270,8 @@ async function driveSync(){
     const folder=await dFolder();
     await dPut("georgeFileId","mogo-for-george.json",folder,JSON.stringify(george,null,2));
     await dEnsureInbox(folder);
+    try{await geoSyncInbox();}catch(e){if(!driveValid())throw e;}
+    driveSaveCfg({inboxRead:Date.now()});
     const t=new Date();driveSaveCfg({lastSync:t.toISOString()});driveSet("ok","Synced "+t.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}));
   }catch(e){if(!driveValid()){Drive.pending=true;driveSet("needs","Tap ☁️ to sync.");}else driveSet("error","Couldn't save to Drive — tap ☁️ to retry.");}
   Drive.busy=false;if(Drive.pending&&driveValid())setTimeout(driveSync,500);
@@ -1250,13 +1283,197 @@ function buildGeorgeFile(tasks,projects,coachLogs){
   const pr=id=>projects.find(p=>p.id===id);const when={A:"available",B:"soon",S:"scheduled",C:"someday"};
   const days=Object.entries(coachLogs||{}).filter(([k,l])=>(l||[]).some(x=>(x.messages||[]).some(m=>m.role==="user"))).map(([k])=>k).sort();
   const open=tasks.filter(t=>!t.doneDate).filter(t=>{const p=pr(t.projectId);return !(p&&(p.parked||p.completed));});
-  return {schemaVersion:2,exportedAt:isoLocal(new Date()),lastCheckIn:days.length?days[days.length-1]:null,
+  return {schemaVersion:2,exportedAt:isoLocal(new Date()),lastCheckIn:days.length?days[days.length-1]:null,fromGeorgeRecent:geoRecentForGeorge(),
     tasks:open.map(t=>({id:t.id,title:t.title,project:(pr(t.projectId)||{name:"Misc Tasks"}).name,when:when[t.priority]||"available",
       dueDate:t.dueDate||null,scheduledDate:t.priority==="S"&&t.schedDate?t.schedDate:null,waiting:!!t.waiting,waitingOn:t.waitingOn||null,
       inProgress:!!t.inProgress,onToday:!!t.today,
       recurring:t.recur?{every:recurEvery(t.recur),ifMissed:isManualRecur(t.recur)?"manual":(t.recurMode==="fixed"?"fixed":"flexible"),lastDone:lastDoneOf(t,tasks)}:null,
       notes:t.notes||""}))};
 }
+// ---- From George: inbox messages waiting for Maureen's OK (Session B, 11/03/26) ----
+// Stored on the phone in ONE new item (wh_george_v6): George's picture, notes for Kate, what was decided, and a copy of the waiting messages.
+const GEORGE_KEY="wh_george_v6";
+const Geo={subs:new Set()};
+const geoGet=()=>{try{const g=JSON.parse(localStorage.getItem(GEORGE_KEY)||"{}")||{};return {inbox:[],handled:[],kateNotes:[],picture:"",...g};}catch(e){return {inbox:[],handled:[],kateNotes:[],picture:""};}};
+const geoSave=patch=>{const g={...geoGet(),...patch};try{localStorage.setItem(GEORGE_KEY,JSON.stringify(g));}catch(e){}Geo.subs.forEach(f=>f(g));return g;};
+function useGeorge(){const [g,setG]=useState(geoGet());useEffect(()=>{Geo.subs.add(setG);return()=>{Geo.subs.delete(setG);};},[]);return g;}
+// A message's fingerprint — George doesn't number his messages, so use what he sent and when
+const geoFp=m=>m&&m.id?String(m.id):[m.type,m.sentAt,m.taskId||"",m.title||"",(m.text||"").slice(0,40)].join("|");
+const geoPending=g=>{const done=new Set((g.handled||[]).map(h=>h.fp));return (g.inbox||[]).filter(m=>m&&typeof m==="object"&&!done.has(geoFp(m)));};
+function geoDecide(m,result){const g=geoGet();const fp=geoFp(m);if((g.handled||[]).some(h=>h.fp===fp))return;
+  const h=[...(g.handled||[]),{fp,result,date:todayDS(),type:m.type||"",title:m.title||"",sentAt:m.sentAt||""}].slice(-300);
+  geoSave({handled:h});setTimeout(()=>{if(typeof driveSync==="function")driveSync();},300);}
+// Called during Drive sync: copy George's messages in, and take decided ones out of his inbox
+async function geoSyncInbox(){
+  const id=driveCfg().inboxFileId;if(!id)return;
+  let j;try{j=JSON.parse(await dRead(id));}catch(e){return;} // unreadable/odd file: leave it alone
+  if(!j||!Array.isArray(j.messages))return;
+  const g=geoGet();const done=new Set((g.handled||[]).map(h=>h.fp));
+  const keep=j.messages.filter(m=>!(m&&typeof m==="object"&&done.has(geoFp(m))));
+  // keep a local copy of everything still waiting (plus anything already shown) so the box works offline
+  const known=new Set(keep.map(m=>geoFp(m)));const merged=[...keep,...(g.inbox||[]).filter(m=>!known.has(geoFp(m))&&!done.has(geoFp(m)))];
+  geoSave({inbox:merged});
+  if(keep.length!==j.messages.length){ // re-read right before writing so nothing George just added is lost
+    let fresh;try{fresh=JSON.parse(await dRead(id));}catch(e){return;}
+    if(!fresh||!Array.isArray(fresh.messages))return;
+    fresh.messages=fresh.messages.filter(m=>!(m&&typeof m==="object"&&done.has(geoFp(m))));
+    await dUpdate(id,JSON.stringify(fresh,null,2));
+  }
+}
+// What George sees about his recent messages (so he doesn't re-send ones you declined)
+const geoRecentForGeorge=()=>{const cut=new Date();cut.setDate(cut.getDate()-14);const c=toDS(cut.getFullYear(),cut.getMonth(),cut.getDate());
+  return (geoGet().handled||[]).filter(h=>h.date>=c).map(h=>({sentAt:h.sentAt||null,type:h.type,title:h.title||null,result:h.result,decidedOn:h.date}));};
+// Notes for Kate from the last 14 days, as text for her instructions
+const geoKateCtx=()=>{const cut=new Date();cut.setDate(cut.getDate()-14);const c=toDS(cut.getFullYear(),cut.getMonth(),cut.getDate());
+  const n=(geoGet().kateNotes||[]).filter(x=>x.date>=c);if(!n.length)return "";
+  return "\n\nNotes passed along by George (the user's day-to-day assistant). Bring these up naturally if relevant; don't read them out as a list:\n"+n.map(x=>"- ("+x.date+") "+x.text).join("\n");};
+// Matching helpers
+const geoNorm=s=>(s||"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim();
+function geoMatchProject(name,projects){
+  const n=geoNorm(name);if(!n)return {id:"misc",matched:true};
+  const live=projects.filter(p=>!p.completed);
+  const ex=live.find(p=>geoNorm(p.name)===n);if(ex)return {id:ex.id,matched:true};
+  const part=live.find(p=>{const pn=geoNorm(p.name);return pn&&(pn.includes(n)||n.includes(pn));});if(part)return {id:part.id,matched:true};
+  return {id:"misc",matched:false};}
+function geoFindTask(m,tasks){
+  if(m.taskId){const t=tasks.find(x=>x.id===m.taskId&&!x.doneDate);if(t)return t;}
+  const n=geoNorm(m.title);if(!n)return null;return tasks.find(x=>!x.doneDate&&geoNorm(x.title)===n)||null;}
+function geoSimilar(title,tasks){
+  const n=geoNorm(title);if(!n)return null;const w=new Set(n.split(" ").filter(x=>x.length>2));
+  return tasks.find(t=>{if(t.doneDate)return false;const tn=geoNorm(t.title);if(!tn)return false;if(tn===n||(tn.length>4&&n.includes(tn))||(n.length>4&&tn.includes(n)))return true;
+    const tw=new Set(tn.split(" ").filter(x=>x.length>2));if(w.size<2||tw.size<2)return false;let both=0;w.forEach(x=>{if(tw.has(x))both++;});return both/Math.max(w.size,tw.size)>=0.6;})||null;}
+const geoWhen={available:"A",soon:"B",scheduled:"S",someday:"C"};
+// Turn an addTask message into a MoGo task
+function geoDraftTask(m,projects){
+  const pm=geoMatchProject(m.project,projects);
+  const pri=geoWhen[(m.when||"").toLowerCase()]||(m.scheduledDate?"S":"A");
+  const extra=[];if(m.notes)extra.push(m.notes);if(m.project&&!pm.matched)extra.push("George said: "+m.project);
+  return {title:(m.title||"").trim()||"(untitled from George)",notes:extra.join("\n"),priority:pri,schedDate:pri==="S"?(m.scheduledDate||undefined):undefined,
+    projectId:pm.id,dueDate:m.dueDate||undefined,waiting:m.waiting?true:undefined,waitingOn:m.waitingOn||undefined,_today:!!m.onToday||m.dueDate===todayDS(),_unmatched:m.project&&!pm.matched?m.project:null};}
+// The changes an updateTask message asks for, in MoGo's terms
+function geoChanges(m,projects){
+  const c=m.changes||m.updates||m;const out={},say=[];
+  {const v=c!==m?c.title:m.newTitle;if(v){out.title=v;say.push("rename to “"+v+"”");}}
+  if("dueDate" in c){out.dueDate=c.dueDate||undefined;say.push(c.dueDate?"due "+fmtDueDate(c.dueDate):"no due date");}
+  if("scheduledDate" in c){if(c.scheduledDate){out.priority="S";out.schedDate=c.scheduledDate;say.push("scheduled "+fmtDueDate(c.scheduledDate));}else{out.schedDate=undefined;say.push("not scheduled");}}
+  if("when" in c&&geoWhen[(c.when||"").toLowerCase()]){out.priority=geoWhen[c.when.toLowerCase()];say.push(c.when);}
+  if("waiting" in c){out.waiting=c.waiting?true:undefined;say.push(c.waiting?"waiting"+(c.waitingOn?" on "+c.waitingOn:""):"not waiting");}
+  if("waitingOn" in c&&c.waitingOn)out.waitingOn=c.waitingOn;
+  if("inProgress" in c){out.inProgress=c.inProgress?true:undefined;say.push(c.inProgress?"in progress":"not in progress");}
+  if("onToday" in c){out.today=c.onToday?true:undefined;say.push(c.onToday?"on Today":"off Today");}
+  if("notes" in c&&c!==m){out.notes=c.notes||"";say.push("notes updated");}
+  if("project" in c&&c!==m){const pm=geoMatchProject(c.project,projects);out.projectId=pm.id;say.push("move to "+((projects.find(p=>p.id===pm.id)||{}).name||"Misc"));}
+  return {out,say};}
+const geoDoneTime=()=>{const h=new Date().getHours();return h<12?"morning":h<17?"afternoon":"evening";};
+// Downscale a picked photo to a small square so it takes little room on the phone
+function geoShrinkPhoto(file,cb){const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>{const s=Math.min(img.width,img.height);const cv=document.createElement("canvas");cv.width=cv.height=120;const cx=cv.getContext("2d");cx.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,120,120);cb(cv.toDataURL("image/jpeg",0.85));};img.onerror=()=>cb(null);img.src=ev.target.result;};r.onerror=()=>cb(null);r.readAsDataURL(file);}
+function GeorgeFace({size=28}){const {picture}=useGeorge();return picture?<img src={picture} alt="George" style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",border:`1px solid ${C.border}`,background:"#fff",flexShrink:0}}/>:null;}
+function GeorgeBar({onReview}){const g=useGeorge();const n=geoPending(g).length;if(!n||!onReview)return null;
+  return(<div onClick={onReview} style={{display:"flex",alignItems:"center",gap:8,background:"#eaf2f9",border:`1.5px solid #7fa8c9`,borderRadius:12,padding:"7px 12px",marginBottom:14,cursor:"pointer"}}>
+    <GeorgeFace size={26}/><span style={{flex:1,fontSize:".86rem"}}>George has <b>{n}</b> update{n>1?"s":""} for you</span>
+    <button style={btn("primary",{padding:"4px 12px",fontSize:".76rem"})}>Review</button></div>);}
+// George's own screen: comes up first when there's news from him; Later (or finishing) goes back to normal
+function GeorgeScreen({tasks,projects,setTasks,setProjects,onClose}){
+  return(<div style={{position:"fixed",inset:0,background:C.bg,zIndex:400,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+    <div style={{...S.panel,paddingTop:14}}>
+      <FromGeorge tasks={tasks} projects={projects} setTasks={setTasks} setProjects={setProjects} onLater={onClose}/>
+    </div></div>);}
+function GeorgePictureSetting(){
+  const {picture}=useGeorge();const ref=useRef();
+  return(<div style={{marginBottom:16}}>
+    <label style={{display:"block",fontSize:".82rem",fontWeight:600,color:C.text2,marginBottom:6}}>George's picture</label>
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      {picture?<GeorgeFace size={44}/>:<div style={{width:44,height:44,borderRadius:"50%",border:`1px dashed ${C.border}`}}/>}
+      <button style={btn("ghost",{padding:"5px 12px",fontSize:".78rem"})} onClick={()=>ref.current.click()}>{picture?"Change":"Choose photo"}</button>
+      {picture&&<button style={btn("ghost",{padding:"5px 12px",fontSize:".78rem",color:C.text3})} onClick={()=>{geoSave({picture:""});setTimeout(driveSync,300);}}>Remove</button>}
+      <input ref={ref} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];e.target.value="";if(!f)return;geoShrinkPhoto(f,d=>{if(d){geoSave({picture:d});setTimeout(driveSync,300);}else alert("Couldn't read that picture.");});}}/>
+    </div>
+    <div style={{fontSize:".72rem",color:C.text3,marginTop:4}}>Shown on the From George box. Kept on this phone and in your 💾 backups.</div>
+  </div>);
+}
+function FromGeorge({tasks,projects,setTasks,setProjects,onLater}){
+  const g=useGeorge();const pending=geoPending(g).map((m,i)=>({m,i})).sort((a,b)=>((a.m.type==="noteForKate")-(b.m.type==="noteForKate"))||a.i-b.i).map(x=>x.m);
+  const [edit,setEdit]=useState(null);const [noteEdit,setNoteEdit]=useState(null);
+  if(!pending.length)return null;
+  const pname=id=>(projects.find(p=>p.id===id)||{name:"Misc Tasks"}).name;
+  const addTaskNow=(data,today)=>{setTasks(prev=>[...prev,{id:uid(),...data,addedDate:todayDS(),doneDate:null,today:today?true:undefined,fromGeorge:true}]);
+    const pr=projects.find(p=>p.id===data.projectId);if(today&&pr&&pr.parked)setProjects(prev=>prev.map(p=>p.id===pr.id?{...p,parked:false}:p));};
+  const markDone=t=>setTasks(prev=>{const upd=prev.map(x=>x.id===t.id?{...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:geoDoneTime(),today:undefined,inProgress:undefined}:x);const nx=spawnNext(prev.find(x=>x.id===t.id));return nx?[...upd,nx]:upd;});
+  const small={padding:"4px 10px",fontSize:".76rem"};
+  // What "✓" does for each message — or null when it needs Maureen's own look (possible duplicate, task not found, unclear)
+  const planFor=m=>{const type=m.type||"";
+    if(type==="addTask"){const d=geoDraftTask(m,projects);if(geoSimilar(d.title,tasks))return null;const clean={...d};delete clean._today;delete clean._unmatched;return {kind:"new task",go:()=>{addTaskNow(clean,d._today);geoDecide(m,"added");}};}
+    if(type==="deleteTask"){const t=geoFindTask(m,tasks);return t?{kind:"delete",go:()=>{setTasks(prev=>prev.filter(x=>x.id!==t.id));geoDecide(m,"deleted");}}:null;}
+    if(type==="logDone"||type==="completeTask"||type==="markDone"){const t=geoFindTask(m,tasks);return {kind:"done",go:()=>{if(t)markDone(t);else{const pm=geoMatchProject(m.project,projects);setTasks(prev=>[...prev,{id:uid(),title:(m.title||"Done (from George)").trim(),notes:m.notes||"",priority:"A",projectId:pm.id,addedDate:todayDS(),doneDate:todayDS(),completedOn:todayDS(),completedTime:geoDoneTime(),fromGeorge:true}]);}geoDecide(m,"done");}};}
+    if(type==="updateTask"){const t=geoFindTask(m,tasks);const {out,say}=geoChanges(m,projects);return t&&say.length?{kind:"update",go:()=>{setTasks(prev=>prev.map(x=>x.id===t.id?{...x,...out}:x));geoDecide(m,"updated");}}:null;}
+    if(type==="noteForKate"&&(m.text||"").trim()){return {kind:"note for Kate",go:()=>{const g2=geoGet();geoSave({kateNotes:[...(g2.kateNotes||[]),{date:todayDS(),text:m.text.trim(),sentAt:m.sentAt||""}].slice(-60)});geoDecide(m,"passed-to-kate");}};}
+    return null;};
+  const approveAll=()=>{const plans=pending.map(m=>({m,p:planFor(m)}));const ok=plans.filter(x=>x.p);const left=plans.length-ok.length;
+    if(!ok.length){alert("Each of these needs your own look — please decide them one at a time.");return;}
+    const count={};ok.forEach(x=>{count[x.p.kind]=(count[x.p.kind]||0)+1;});
+    const lines=Object.entries(count).map(([k,n])=>"• "+n+" "+(n>1?(k==="delete"?"deletes":k==="done"?"marked done":k==="new task"?"new tasks":k==="update"?"updates":"notes for Kate"):(k==="done"?"marked done":k))).join("\n");
+    if(!window.confirm("Approve "+ok.length+" of George's messages?\n\n"+lines+(left?"\n\n"+left+" will stay for you to look at (possible duplicate or something unclear).":"")))return;
+    ok.forEach(x=>x.p.go());setEdit(null);setNoteEdit(null);};
+  const card=(m,i)=>{
+    const type=m.type||"";let what=null,warn=null,buttons=null;
+    if(type==="addTask"){const d=geoDraftTask(m,projects);const dup=geoSimilar(d.title,tasks);
+      what=<>➕ <b>New task:</b> {d.title}<span style={{color:C.text3}}> · {pname(d.projectId)}{d.dueDate?" · due "+fmtDueDate(d.dueDate):""}{d.priority==="S"&&d.schedDate?" · scheduled "+fmtDueDate(d.schedDate):""}{d._today?" · on Today":""}</span></>;
+      if(d._unmatched)warn=<>No project called “{d._unmatched}” — it will go in Misc Tasks.</>;
+      if(dup)warn=<>{warn}{warn?<br/>:null}Looks like you already have “{dup.title}” ({pname(dup.projectId)}).</>;
+      const clean={...d};delete clean._today;delete clean._unmatched;
+      buttons=<>
+        <button style={btn("primary",small)} onClick={()=>{addTaskNow(clean,d._today);geoDecide(m,"added");}}>{dup?"✓ Add anyway":"✓ OK"}</button>
+        <button style={btn("ghost",small)} onClick={()=>setEdit({m,task:{...clean,today:d._today}})}>✏️ Edit</button>
+        <button style={btn("ghost",{...small,color:C.text3})} onClick={()=>geoDecide(m,dup?"skipped-duplicate":"declined")}>{dup?"Skip — keep mine":"✕ No thanks"}</button></>;}
+    else if(type==="deleteTask"){const t=geoFindTask(m,tasks);
+      what=<>🗑 <b>Delete:</b> {t?t.title:(m.title||"a task")}{t&&<span style={{color:C.text3}}> · {pname(t.projectId)}</span>}</>;
+      if(!t)warn=<>I can't find that task — it may already be gone.</>;
+      buttons=t?<><button style={btn("primary",{...small,background:C.pa})} onClick={()=>{setTasks(prev=>prev.filter(x=>x.id!==t.id));geoDecide(m,"deleted");}}>✓ Delete it</button>
+        <button style={btn("ghost",{...small,color:C.text3})} onClick={()=>geoDecide(m,"declined")}>✕ Keep it</button></>
+        :<button style={btn("ghost",small)} onClick={()=>geoDecide(m,"not-found")}>OK</button>;}
+    else if(type==="logDone"||type==="completeTask"||type==="markDone"){const t=geoFindTask(m,tasks);
+      what=<>✅ <b>Done:</b> {t?t.title:(m.title||"something")}{t&&<span style={{color:C.text3}}> · {pname(t.projectId)}</span>}</>;
+      if(!t)warn=<>Not on your list — OK adds it to Done as something you finished today.</>;
+      buttons=<><button style={btn("primary",small)} onClick={()=>{if(t)markDone(t);else{const pm=geoMatchProject(m.project,projects);setTasks(prev=>[...prev,{id:uid(),title:(m.title||"Done (from George)").trim(),notes:m.notes||"",priority:"A",projectId:pm.id,addedDate:todayDS(),doneDate:todayDS(),completedOn:todayDS(),completedTime:geoDoneTime(),fromGeorge:true}]);}geoDecide(m,"done");}}>✓ Mark done</button>
+        <button style={btn("ghost",{...small,color:C.text3})} onClick={()=>geoDecide(m,"declined")}>✕ Not yet</button></>;}
+    else if(type==="updateTask"){const t=geoFindTask(m,tasks);const {out,say}=geoChanges(m,projects);
+      what=<>🔄 <b>Update:</b> {t?t.title:(m.title||"a task")}{say.length>0&&<span style={{color:C.text3}}> → {say.join(", ")}</span>}</>;
+      if(!t)warn=<>I can't find that task.</>;else if(!say.length)warn=<>George didn't say what to change.</>;
+      buttons=t&&say.length?<><button style={btn("primary",small)} onClick={()=>{setTasks(prev=>prev.map(x=>x.id===t.id?{...x,...out}:x));geoDecide(m,"updated");}}>✓ OK</button>
+        <button style={btn("ghost",small)} onClick={()=>setEdit({m,existing:t,task:{...t,...out}})}>✏️ Edit</button>
+        <button style={btn("ghost",{...small,color:C.text3})} onClick={()=>geoDecide(m,"declined")}>✕ No thanks</button></>
+        :<button style={btn("ghost",small)} onClick={()=>geoDecide(m,"not-found")}>OK</button>;}
+    else if(type==="noteForKate"){const editing=noteEdit&&noteEdit.fp===geoFp(m);
+      what=<>💬 <b>For Kate:</b> {editing?null:(m.text||"")}</>;
+      const pass=txt=>{const g2=geoGet();geoSave({kateNotes:[...(g2.kateNotes||[]),{date:todayDS(),text:txt.trim(),sentAt:m.sentAt||""}].slice(-60)});geoDecide(m,"passed-to-kate");setNoteEdit(null);};
+      buttons=editing?<div style={{width:"100%"}}><textarea style={{...S.textarea,fontSize:"16px",minHeight:60}} value={noteEdit.text} onChange={e=>setNoteEdit({...noteEdit,text:e.target.value})}/><div style={{display:"flex",gap:6,marginTop:4}}><button style={btn("primary",small)} onClick={()=>noteEdit.text.trim()&&pass(noteEdit.text)}>✓ Pass to Kate</button><button style={btn("ghost",small)} onClick={()=>setNoteEdit(null)}>Cancel</button></div></div>
+        :<><button style={btn("primary",small)} onClick={()=>pass(m.text||"")}>✓ Pass to Kate</button>
+        <button style={btn("ghost",small)} onClick={()=>setNoteEdit({fp:geoFp(m),text:m.text||""})}>✏️ Edit</button>
+        <button style={btn("ghost",{...small,color:C.text3})} onClick={()=>geoDecide(m,"declined")}>✕ No thanks</button></>;}
+    else{what=<>📝 <b>Message:</b> {m.title||""}</>;buttons=<button style={btn("ghost",small)} onClick={()=>geoDecide(m,"seen")}>OK</button>;}
+    const why=type==="noteForKate"?null:(m.text||"");
+    return(<div key={geoFp(m)+i} style={{padding:"9px 12px",borderTop:i?`1px solid ${C.border}`:"none"}}>
+      <div style={{fontSize:".86rem",color:C.text,lineHeight:1.35}}>{what}</div>
+      {why&&<div style={{fontSize:".76rem",color:C.text3,fontStyle:"italic",marginTop:3,lineHeight:1.35}}>“{why}”</div>}
+      {warn&&<div style={{fontSize:".75rem",color:"#8a5a00",background:"#fff6dd",border:"1px solid #ecd28a",borderRadius:6,padding:"4px 8px",marginTop:5}}>{warn}</div>}
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:7}}>{buttons}</div>
+    </div>);};
+  return(<div style={{background:C.card,border:`1.5px solid #7fa8c9`,borderRadius:14,marginBottom:14,overflow:"hidden"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:"#eaf2f9"}}>
+      <GeorgeFace size={30}/><span style={{fontFamily:"Georgia,serif",fontWeight:700,fontSize:"1rem",flex:1}}>From George</span>
+      <span style={{fontSize:".75rem",color:C.text3}}>{pending.length} waiting</span>
+      {pending.length>1&&<button style={btn("primary",{padding:"4px 10px",fontSize:".74rem"})} onClick={approveAll}>✓ Approve all</button>}
+      {onLater&&<button style={btn("ghost",{padding:"4px 10px",fontSize:".74rem"})} onClick={onLater}>Later</button>}
+    </div>
+    {pending.map(card)}
+    {edit&&<TaskModal heading={edit.existing?"Edit George's update":"Edit George's task"} task={edit.task} projects={projects} defaultProjectId={edit.task.projectId||"misc"}
+      onCreateProject={name=>{const id=uid();setProjects(prev=>[...prev,{id,name}]);return id;}}
+      onSave={data=>{if(edit.existing){setTasks(prev=>prev.map(x=>x.id===edit.existing.id?{...x,...data,today:edit.task.today}:x));geoDecide(edit.m,"updated-edited");}
+        else{const {doneDate,...rest}=data;addTaskNow(rest,edit.task.today);geoDecide(edit.m,"added-edited");}setEdit(null);}}
+      onClose={()=>setEdit(null)}/>}
+  </div>);
+}
+
 // ---- UI pieces ----
 function DriveChip(){
   const {status,msg}=useDrive();if(status==="off")return null;
@@ -1303,7 +1520,7 @@ function SettingsModal({onClose}){
   const [key,setKey]=useState(getApiKey());
   const [about,setAbout]=useState(getAboutMe());
   const [saved,setSaved]=useState(false);
-  const handleSave=()=>{setApiKey(key.trim());setAboutMe(about.trim());setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  const handleSave=()=>{setApiKey(key.trim());setAboutMe(about.trim());onClose();};
   const masked=key?key.slice(0,8)+"…"+key.slice(-4):"";
   return(<div style={S.overlay} onClick={onClose}><div style={{...S.modal,maxWidth:440}} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:4}}>⚙️ Settings</div>
@@ -1320,6 +1537,7 @@ function SettingsModal({onClose}){
       <textarea style={{...S.textarea,minHeight:120,fontSize:"16px"}} value={about} onChange={e=>{setAbout(e.target.value);setSaved(false);}} placeholder="Who you are, what motivates you, health notes, hobbies — anything Kate should always know."/>
       <div style={{fontSize:".72rem",color:C.text3,marginTop:4}}>Kept on this device and included in your 💾 backups.</div>
     </div>
+    <GeorgePictureSetting/>
     <div style={{display:"flex",justifyContent:"flex-end",gap:8,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={onClose}>Cancel</button>
       <button style={btn("primary")} onClick={handleSave}>{saved?"✓ Saved!":"Save"}</button>
@@ -1328,7 +1546,7 @@ function SettingsModal({onClose}){
 }
 
 function ExportModal({moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory,onClose,onImport}){
-  const exportStr=JSON.stringify({exportDate:new Date().toISOString(),moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory,aboutMe:getAboutMe()},null,2);
+  const exportStr=JSON.stringify({exportDate:new Date().toISOString(),moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory,aboutMe:getAboutMe(),george:geoGet()},null,2);
   const importRef=useRef();
   const [pasteVal,setPasteVal]=React.useState("");
   const [showPaste,setShowPaste]=React.useState(false);
@@ -1403,13 +1621,40 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
 
   // ---- Google Drive wiring ----
   const snapRef=useRef(null);snapRef.current={moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory};
-  Drive.getSnap=()=>{const s=snapRef.current;return {backup:{exportDate:new Date().toISOString(),...s,aboutMe:getAboutMe()},george:buildGeorgeFile(s.tasks,s.projects,s.coachLogs)};};
+  Drive.getSnap=()=>{const s=snapRef.current;return {backup:{exportDate:new Date().toISOString(),...s,aboutMe:getAboutMe(),george:geoGet()},george:buildGeorgeFile(s.tasks,s.projects,s.coachLogs)};};
   useEffect(()=>{if(!loaded)return;if(driveCfg().connected&&!driveValid()&&Drive.status==="off")driveSet("needs","Tap anywhere to sync with Drive.");},[loaded]);
   useEffect(()=>{if(!loaded||!driveCfg().connected)return;const t=setTimeout(driveSync,2500);return()=>clearTimeout(t);},[loaded,moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory]);
+  useEffect(()=>{const onVis=()=>{if(document.visibilityState==="visible"&&driveCfg().connected&&driveValid()&&Date.now()-(driveCfg().inboxRead||0)>2*60*1000)driveSync();};document.addEventListener("visibilitychange",onVis);return()=>document.removeEventListener("visibilitychange",onVis);},[]);
   useEffect(()=>{const onTap=()=>{if(driveCfg().connected&&!driveValid()&&Drive.status!=="connecting"&&Date.now()-Drive.lastAuto>5*60*1000)driveConnect();};document.addEventListener("click",onTap,true);return()=>document.removeEventListener("click",onTap,true);},[]);
+  // George's screen: opens when news from him shows up within 2 min of opening MoGo (or coming back to it)
+  const geo=useGeorge();const geoN=geoPending(geo).length;const [georgeOpen,setGeorgeOpen]=useState(false);const geoSeenAt=useRef(Date.now());const geoPrevN=useRef(0);
+  useEffect(()=>{const v=()=>{if(document.visibilityState==="visible")geoSeenAt.current=Date.now();};document.addEventListener("visibilitychange",v);return()=>document.removeEventListener("visibilitychange",v);},[]);
+  useEffect(()=>{if(!loaded)return;if(geoN>geoPrevN.current&&Date.now()-geoSeenAt.current<2*60*1000)setGeorgeOpen(true);if(geoN===0)setGeorgeOpen(false);geoPrevN.current=geoN;},[loaded,geoN]);
+  // ---- Undo: remembers the last 10 changes to tasks/projects (this visit only; nothing extra is saved) ----
+  const undoRef=useRef({hist:[],prev:null,undoing:false,lastAt:0,readyAt:0});const [undoMsg,setUndoMsg]=useState(null);const undoTimer=useRef(null);
+  const showUndo=msg=>{setUndoMsg(msg);clearTimeout(undoTimer.current);undoTimer.current=setTimeout(()=>setUndoMsg(null),10000);};
+  useEffect(()=>{if(loaded)undoRef.current.readyAt=Date.now()+2500;},[loaded]);
+  useEffect(()=>{if(!loaded)return;const u=undoRef.current;const cur={tasks,projects};
+    if(!u.prev||Date.now()<u.readyAt||u.undoing){u.prev=cur;u.undoing=false;return;}
+    if(u.prev.tasks===tasks&&u.prev.projects===projects)return;
+    const uiOnly=u.prev.tasks===tasks&&u.prev.projects.length===projects.length&&projects.every((p,i)=>{const o=u.prev.projects[i];if(o===p)return true;if(!o||o.id!==p.id)return false;const x={...o,ui:p.ui};return Object.keys({...x,...p}).every(k=>x[k]===p[k]);});
+    if(uiOnly){u.prev=cur;return;} // just opening/closing a project — no Undo needed
+    const now=Date.now();
+    if(now-u.lastAt<1000&&u.hist.length){/* same action, still settling — keep the earlier "before" */}else{u.hist.push({before:u.prev,label:describeChange(u.prev,cur)});if(u.hist.length>10)u.hist.shift();}
+    u.lastAt=now;u.prev=cur;showUndo(u.hist[u.hist.length-1].label);},[loaded,tasks,projects]);
+  const doUndo=()=>{const u=undoRef.current;const step=u.hist.pop();if(!step)return;u.undoing=true;u.lastAt=0;setTasks(step.before.tasks);setProjects(step.before.projects);
+    if(u.hist.length)showUndo("Undid: "+step.label);else{setUndoMsg("Undid: "+step.label);clearTimeout(undoTimer.current);undoTimer.current=setTimeout(()=>setUndoMsg(null),4000);}};
+  // Missing moods: for past days (last 30) where you talked with Kate but didn't pick a mood, Kate guesses one
+  const guessTried=useRef(new Set());
+  useEffect(()=>{if(!loaded||!getApiKey())return;let stop=false;const t=setTimeout(async()=>{
+    const today=todayDS();const cut=new Date();cut.setDate(cut.getDate()-30);const cutDS=toDS(cut.getFullYear(),cut.getMonth(),cut.getDate());
+    const days=Object.keys(coachLogs||{}).filter(k=>k<today&&k>=cutDS&&!(moodData[k]&&moodData[k].mood)&&!guessTried.current.has(k)&&(coachLogs[k]||[]).some(l=>(l.messages||[]).some(m=>m.role==="user"&&m.content&&m.content!=="__pending__"))).sort().reverse();
+    for(const k of days){if(stop)break;guessTried.current.add(k);const g=await kateGuessMood(dayConvo(coachLogs[k]));
+      if(g&&!stop)setMoodData(prev=>(prev[k]&&prev[k].mood)?prev:{...prev,[k]:{...(prev[k]||{}),mood:g,inferred:true}});}
+  },4000);return()=>{stop=true;clearTimeout(t);};},[loaded,dayKey]);
   const handleUpdateMemory=mem=>{setCoachMemory(mem);saveCoachMemory(mem);};
-  const saveCoachLog=(dateKey,type,messages,meta={})=>{setCoachLogs(prev=>{const existing=prev[dateKey]||[];const filtered=existing.filter(l=>l.type!==type);return{...prev,[dateKey]:[...filtered,{type,messages,savedAt:new Date().toISOString(),...meta}]};});if(meta.mood&&type!=="chat"){setMoodData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,mood:meta.mood,words:meta.words||[]}}});}if(meta.phys&&type==="evening"){setActData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,phys:meta.phys}}});}};
-  const handleImport=d=>{if(d.tasks)setTasks(d.tasks);if(d.projects)setProjects(d.projects);if(d.moodData)setMoodData(d.moodData);if(d.actData)setActData(d.actData);if(d.moodWords)setMoodWords(d.moodWords);if(d.actWords)setActWords(d.actWords);if(d.coachLogs)setCoachLogs(d.coachLogs);if(d.coachMemory&&Array.isArray(d.coachMemory.insights))handleUpdateMemory(d.coachMemory);if(typeof d.aboutMe==="string"&&d.aboutMe.trim())setAboutMe(d.aboutMe);};
+  const saveCoachLog=(dateKey,type,messages,meta={})=>{setCoachLogs(prev=>{const existing=prev[dateKey]||[];const filtered=existing.filter(l=>l.type!==type);return{...prev,[dateKey]:[...filtered,{type,messages,savedAt:new Date().toISOString(),...meta}]};});if(meta.mood&&type!=="chat"){setMoodData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,mood:meta.mood,words:meta.words||[],inferred:undefined}}});}if(meta.phys&&type==="evening"){setActData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,phys:meta.phys}}});}};
+  const handleImport=d=>{if(d.tasks)setTasks(d.tasks);if(d.projects)setProjects(d.projects);if(d.moodData)setMoodData(d.moodData);if(d.actData)setActData(d.actData);if(d.moodWords)setMoodWords(d.moodWords);if(d.actWords)setActWords(d.actWords);if(d.coachLogs)setCoachLogs(d.coachLogs);if(d.coachMemory&&Array.isArray(d.coachMemory.insights))handleUpdateMemory(d.coachMemory);if(typeof d.aboutMe==="string"&&d.aboutMe.trim())setAboutMe(d.aboutMe);if(d.george&&typeof d.george==="object"&&!Array.isArray(d.george))geoSave(d.george);};
   const saveMood=(key,data)=>{setMoodData(m=>({...m,[key]:data}));setMoodModal(null);};
   const handleAddWord=(target,words,setWords)=>setWordModal({target,words,setWords});
   const saveWord=word=>{const{target,words,setWords}=wordModal;if(target==="mood")setMoodWords(w=>w.includes(word)?w:[...w,word]);else setActWords(w=>w.includes(word)?w:[...w,word]);if(!words.includes(word))setWords([...words,word]);setWordModal(null);};
@@ -1454,12 +1699,17 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
     <nav style={S.tabbar}>{TABS.map(([id,label])=><button key={id} style={{flexShrink:0,padding:"6px 6px",background:"none",border:"none",borderBottom:tab===id?`3px solid ${C.accent}`:"3px solid transparent",fontSize:".74rem",fontWeight:tab===id?600:500,color:tab===id?C.accent:C.text2,cursor:"pointer",whiteSpace:"nowrap",transition:"all .18s"}} onClick={()=>setTab(id)}>{label}</button>)}</nav>
     <div style={S.panel}>
       {tab==="mood"&&<div style={S.card}><MoodCalendar moodData={moodData} tasks={tasks} coachLogs={coachLogs} onDayClick={setMoodModal}/></div>}
-      {tab==="todo"&&<TodoTab tasks={tasks} projects={projects} setTasks={setTasks} setProjects={setProjects} openTaskId={openTaskId} onOpenedTask={()=>setOpenTaskId(null)}/>}
+      {tab==="todo"&&<TodoTab tasks={tasks} projects={projects} setTasks={setTasks} setProjects={setProjects} openTaskId={openTaskId} onOpenedTask={()=>setOpenTaskId(null)} onReviewGeorge={()=>setGeorgeOpen(true)}/>}
       {tab==="completed"&&<CompletedTab tasks={tasks} projects={projects} setTasks={setTasks}/>}
       {tab==="coach"&&<CoachTab moodData={moodData} actData={actData} tasks={tasks} projects={projects} setTasks={setTasks} coachMemory={coachMemory} onUpdateMemory={handleUpdateMemory} coachLogs={coachLogs} onSaveLog={saveCoachLog} checkInDismissed={checkInDismissed} onDismissCheckIn={()=>setCheckInDismissed(v=>!v)} moodWords={moodWords} onSaveMood={saveMood} onSaveAct={(key,data)=>setActData(a=>({...a,[key]:data}))}/>}
     </div>
-    {moodModal&&<MoodModal dateKey={moodModal} moodData={moodData} moodWords={moodWords} tasks={tasks} coachLogs={coachLogs} onSave={saveMood} onClose={()=>setMoodModal(null)} onAddWord={handleAddWord} onSaveLog={saveCoachLog} setTasks={setTasks} onReopenTask={id=>setTasks(prev=>prev.map(t=>t.id===id?{...t,doneDate:null}:t))}/>}
+    {moodModal&&<MoodModal dateKey={moodModal} moodData={moodData} moodWords={moodWords} tasks={tasks} coachLogs={coachLogs} onSave={saveMood} onClose={()=>setMoodModal(null)} onAddWord={handleAddWord} onSaveLog={saveCoachLog} setTasks={setTasks} onReopenTask={id=>setTasks(prev=>prev.map(t=>t.id===id?{...t,doneDate:null}:t))} projects={projects}/>}
     {wordModal&&<WordModal onSave={saveWord} onClose={()=>setWordModal(null)}/>}
+    {undoMsg&&<div style={{position:"fixed",left:12,right:12,bottom:14,zIndex:450,display:"flex",justifyContent:"center",pointerEvents:"none"}}><div style={{pointerEvents:"auto",display:"flex",alignItems:"center",gap:10,background:"#3b352c",color:"#fff",borderRadius:22,padding:"7px 8px 7px 14px",boxShadow:"0 4px 14px rgba(0,0,0,.25)",maxWidth:480,fontSize:".8rem"}}>
+      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{undoMsg}</span>
+      {undoRef.current.hist.length>0&&<button onClick={doUndo} style={{background:"#fff",color:"#3b352c",border:"none",borderRadius:16,padding:"4px 12px",fontWeight:700,fontSize:".8rem",cursor:"pointer",flexShrink:0}}>↶ Undo</button>}
+      <button onClick={()=>setUndoMsg(null)} style={{background:"none",border:"none",color:"#ccc",cursor:"pointer",fontSize:".9rem",padding:"0 4px"}} title="Hide">✕</button></div></div>}
+    {georgeOpen&&geoN>0&&<GeorgeScreen tasks={tasks} projects={projects} setTasks={setTasks} setProjects={setProjects} onClose={()=>setGeorgeOpen(false)}/>}
     {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)}/> }{showExport&&<ExportModal moodData={moodData} actData={actData} tasks={tasks} projects={projects} moodWords={moodWords} actWords={actWords} coachLogs={coachLogs} coachMemory={coachMemory} onClose={()=>setShowExport(false)} onImport={handleImport}/>}
   </div>);
 }
