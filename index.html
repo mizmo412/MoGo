@@ -64,7 +64,8 @@ const LIST_GROUPS=["W","A","S1","B","S2","C"];
 const listGroup=t=>{const d=effDate(t);if(d&&d<=dsPlus(7))return "W";if(t.priority==="S"){const s=t.schedDate;return (!s||s<=dsPlus(30))?"S1":"S2";}return t.priority==="B"?"B":t.priority==="C"?"C":"A";};
 // Inside a group: ALL CAPS first, then dated within a month (earliest first), then undated, then dated later
 const listRank=t=>{const d=effDate(t);return !d?1:d<=dsPlus(30)?0:2;};
-const listSort=(a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ra=listRank(a),rb=listRank(b);if(ra!==rb)return ra-rb;const ad=effDate(a),bd=effDate(b);if(ad&&bd&&ad!==bd)return ad<bd?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;};
+let CUR_DAY_TYPES=[];
+const listSort=(a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ma=!!a.dayType&&CUR_DAY_TYPES.includes(a.dayType),mb=!!b.dayType&&CUR_DAY_TYPES.includes(b.dayType);if(ma!==mb)return ma?-1:1;const ra=listRank(a),rb=listRank(b);if(ra!==rb)return ra-rb;const ad=effDate(a),bd=effDate(b);if(ad&&bd&&ad!==bd)return ad<bd?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;};
 function isStale(task){
   if(task.doneDate||task.waiting||task.inProgress)return false;
   if(!STALE_DAYS[task.priority])return false;
@@ -151,7 +152,7 @@ function nextFixedDate(dueDate,recur){const today=todayDS();let n=addInterval(du
 function spawnNext(orig){
   if(!orig||!orig.recur)return null;const today=todayDS();const manual=isManualRecur(orig.recur);
   const nd=manual?undefined:(orig.recurMode==="fixed"?nextFixedDate(orig.dueDate,orig.recur):nextDueDate(orig.recur));
-  return{...orig,id:uid(),doneDate:null,today:undefined,completedOn:undefined,completedTime:undefined,inProgress:false,waiting:false,waitingOn:undefined,progressedOn:undefined,onDeck:undefined,addedDate:today,dueDate:nd,calculatedDate:nd?true:undefined,priority:"B",lastDone:today,needsNextDate:manual?true:undefined};
+  return{...orig,id:uid(),pushCount:undefined,lastPushed:undefined,doneDate:null,today:undefined,completedOn:undefined,completedTime:undefined,inProgress:false,waiting:false,waitingOn:undefined,progressedOn:undefined,onDeck:undefined,addedDate:today,dueDate:nd,calculatedDate:nd?true:undefined,priority:"B",lastDone:today,needsNextDate:manual?true:undefined};
 }
 // Most recent completion date for a recurring task (from the task itself or its completed copies)
 function lastDoneOf(task,tasks){let best=task.lastDone||"";for(const t of tasks){if(t.doneDate&&t.recur&&t.title===task.title&&t.projectId===task.projectId){const d=t.doneDate!=="trivial"?t.doneDate:(t.completedOn||"");if(d>best)best=d;}}return best||null;}
@@ -160,7 +161,7 @@ function getAboutMe(){try{return localStorage.getItem("wh_about_me_v6")||"";}cat
 function setAboutMe(v){localStorage.setItem("wh_about_me_v6",v);}
 function nowStamp(){const n=new Date();return n.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})+", "+n.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});}
 // Coach task suggestions: pull out [[TASK: ...]] lines so they show as buttons instead of text
-function splitCoachTasks(text){const tasks=[];const clean=(text||"").replace(/\[\[TASK:\s*([^\]]+?)\s*\]\]/gi,(m,t)=>{tasks.push(t.trim());return "";}).replace(/\n{3,}/g,"\n\n").trim();return{clean,tasks};}
+function splitCoachTasks(text){const tasks=[];const clean=(text||"").replace(/\[\[TASK:\s*([^\]]+?)\s*\]\]/gi,(m,t)=>{tasks.push(t.trim());return "";}).replace(/\[\[DAY:[^\]]*\]\]/gi,"").replace(/\n{3,}/g,"\n\n").trim();return{clean,tasks};}
 // Short description of a change, for the Undo bar
 function describeChange(a,b){
   const q=s=>"“"+(s.length>34?s.slice(0,32)+"…":s)+"”";
@@ -184,7 +185,7 @@ async function kateGuessMood(convo){
 function dayConvo(logs){return (logs||[]).flatMap(l=>(l.messages||[])).filter(m=>m&&m.content&&m.content!=="__pending__").map(m=>(m.role==="user"?"User: ":"Kate: ")+m.content).join("\n");}
 async function askCoach(messages,ctx=""){
   const about=getAboutMe().trim();
-  const sys=COACH_SYS+"\n\nCurrent date and time: "+nowStamp()+"."+(about?"\n\nAbout the user:\n"+about:"")+(ctx?"\n\nUser data:\n"+ctx:"");
+  const sys=COACH_SYS+DAY_RULES+"\n\nCurrent date and time: "+nowStamp()+"."+(about?"\n\nAbout the user:\n"+about:"")+(ctx?"\n\nUser data:\n"+ctx:"");
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),30000);
   let res;
@@ -220,6 +221,7 @@ function Chip({label,selected,onClick,dashed}){return <div onClick={onClick} sty
 function ChipsEditor({wordList,selected,onChange,onAddWord}){return <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:6}}>{wordList.map(w=><Chip key={w} label={w} selected={selected.includes(w)} onClick={()=>onChange(selected.includes(w)?selected.filter(x=>x!==w):[...selected,w])}/>)}<Chip label="+ Other" dashed onClick={onAddWord}/></div>;}
 
 function MoodCalendar({moodData,tasks,coachLogs,onDayClick}){
+  const dstore=useDays();
   const [cal,setCal]=useState({y:new Date().getFullYear(),m:new Date().getMonth()});
   const [search,setSearch]=useState("");const [searchResults,setSearchResults]=useState([]);
   const doSearch=q=>{setSearch(q);if(!q.trim()){setSearchResults([]);return;}const ql=q.toLowerCase();const results=tasks.filter(t=>t.doneDate&&t.title.toLowerCase().includes(ql)).map(t=>({id:t.id,title:t.title,date:t.completedOn||t.doneDate,doneDate:t.doneDate,trivial:t.trivial})).filter(r=>r.date&&r.date!=="trivial").sort((a,b)=>b.date.localeCompare(a.date));setSearchResults(results);};
@@ -256,6 +258,7 @@ function MoodCalendar({moodData,tasks,coachLogs,onDayClick}){
           <div style={{fontSize:".73rem",padding:"3px 5px",fontWeight:key===todS?700:400,color:key===todS?C.accent:C.text}}>{d}</div>
           {ent&&<div style={{fontSize:".95rem",padding:"1px 0 0 4px",opacity:guess?.5:1}}>{mEm[ent.mood]}</div>}
           {dot>0&&<div style={{position:"absolute",bottom:2,right:3,fontSize:".58rem",color:C.text3,fontWeight:700}}>✓{dot}</div>}
+          {(((dstore.days||{})[key]||{}).types||[]).length>0&&<div style={{position:"absolute",bottom:1,left:3,fontSize:".55rem",letterSpacing:-1}}>{(dstore.days[key].types||[]).map(k=>DAY_EMOJI[k]).join("")}</div>}
           {hasLog&&<div style={{position:"absolute",top:2,right:3,fontSize:".65rem"}}>💬</div>}
         </div>;
       })}
@@ -326,6 +329,7 @@ function WordModal({onSave,onClose}){const [val,setVal]=useState("");return(<div
 
 function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,onDelete,lastDone,onCreateProject,heading}){
   const [newProj,setNewProj]=useState(null);
+  const [dayT,setDayT]=useState(task?.dayType||"");
   const [title,setTitle]=useState(task?.title||"");const [notes,setNotes]=useState(task?.notes||"");const [pri,setPri]=useState(task?.priority||"A");const [schedDate,setSchedDate]=useState(task?.schedDate||"");const [projId,setProjId]=useState(task?.projectId||defaultProjectId||"misc");
   const [waiting,setWaiting]=useState(!!task?.waiting);const [waitingOn,setWaitingOn]=useState(task?.waitingOn||"");
   const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [markComplete,setMarkComplete]=useState(!!task?.doneDate);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const [recurMode,setRecurMode]=useState(task?.recurMode||"flex");const [recalcNote,setRecalcNote]=useState("");
@@ -341,7 +345,7 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
         if(!opts.skipConflict&&!recur&&pri==="S"&&schedDate&&dd&&schedDate>dd){setSchedConflict(true);return;}
         const newLog=[...(progressNote.trim()?[...progressLog,{date:todayDS(),note:progressNote.trim()}]:progressLog),...(completeNote.trim()?[{date:todayDS(),note:"[Complete] "+completeNote.trim()}]:[])];
         const doneVal=markComplete?(task?.doneDate||todayDS()):undefined;
-        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dd?(dd<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:undefined,progressLog:newLog.length?newLog:undefined,dueDate:dd||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dd&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?(task?.doneDate?(task.completedOn||task.doneDate):todayDS()):undefined,onDeck:waiting?task?.onDeck:undefined});
+        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dd?(dd<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({dayType:dayT!==(task?.dayType||"")?dayT:task?.dayType,title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:undefined,progressLog:newLog.length?newLog:undefined,dueDate:dd||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dd&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?(task?.doneDate?(task.completedOn||task.doneDate):todayDS()):undefined,onDeck:waiting?task?.onDeck:undefined});
   };
   return(<div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:16}}>{heading||(task?"Edit Task":"Add Task")}</div>
@@ -377,6 +381,7 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
       {recur&&isManualRecur(recur)&&<div style={{fontSize:".74rem",color:C.text3,marginTop:4,fontStyle:"italic"}}>When you complete it, you'll be asked for the next date.</div>}
     </FormRow>
     <FormRow label="Notes"><textarea style={S.textarea} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Details, context, links…"/></FormRow>
+    <FormRow label="Kind of day"><select style={S.select} value={dayT} onChange={e=>setDayT(e.target.value)}><option value="">— any day —</option>{DAY_TYPES.filter(([k])=>k!=="mo").map(([k,e,n])=><option key={k} value={k}>{e} {n}</option>)}</select></FormRow>
     {progressLog.length>0&&<FormRow label="Progress Log"><div style={{maxHeight:120,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>{[...progressLog].reverse().map((entry,i)=><div key={i} style={{fontSize:".78rem",padding:"4px 8px",background:C.bg2,borderRadius:6,border:`1px solid ${C.border}`}}><span style={{color:C.text3,fontWeight:600}}>{entry.date}: </span><span style={{color:C.text2}}>{entry.note}</span></div>)}</div></FormRow>}
     <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={onClose}>Cancel</button>
@@ -419,7 +424,7 @@ function TaskRow({task,onComplete,onEdit,dragHandleProps,onSnooze,isParked}){
     <div onClick={()=>onComplete(task.id)} style={{width:16,height:16,border:`2px solid ${C.border}`,borderRadius:4,cursor:"pointer",flexShrink:0,marginTop:2}}/>
     <div style={{flex:1,minWidth:0}}>
       <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-        <span style={{fontSize:".87rem",lineHeight:1.35,color:isWaiting?C.text3:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>onEdit&&onEdit(task)}>{task.title}</span>
+        <span style={{fontSize:".87rem",lineHeight:1.35,color:isWaiting?C.text3:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>onEdit&&onEdit(task)}>{task.title}</span>{task.dayType&&DAY_EMOJI[task.dayType]&&<span style={{fontSize:".72rem"}} title={DAY_NAME[task.dayType]}>{DAY_EMOJI[task.dayType]}</span>}
         {isWaiting&&<span style={{fontSize:".8rem"}}>⏸️</span>}
         {task.inProgress&&!isWaiting&&<span style={{fontSize:".8rem"}}>⏳</span>}
         {task.returnOn&&!task.today&&<span style={{fontSize:".66rem",color:C.text3,border:`1px solid ${C.border}`,borderRadius:8,padding:"0 5px"}} title="Comes back to Today">↻ {task.returnOn<=tomorrowDS()?"Tmrw":fmtDueDate(task.returnOn)}</span>}
@@ -549,6 +554,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
 }
 
 function TodoTab({tasks,projects,setTasks,setProjects,openTaskId,onOpenedTask,onReviewGeorge}){
+  const dstore=useDays();CUR_DAY_TYPES=(((dstore.days||{})[todayDS()]||{}).types)||[];
   const [showTask,setShowTask]=useState(false);const [editTask,setEditTask]=useState(null);const [showProj,setShowProj]=useState(false);const [collapsed,setCollapsed]=useState({__recur__:true,__waiting__:true,__completedProjs__:true});const [confirm,setConfirm]=useState(null);const [addingTo,setAddingTo]=useState(null);const [addingToToday,setAddingToToday]=useState(false);const [progressPrompt,setProgressPrompt]=useState(null);const [nextLater,setNextLater]=useState([]);
   const active=tasks.filter(t=>!t.doneDate);
   useEffect(()=>{if(!openTaskId)return;const t=tasks.find(x=>x.id===openTaskId);if(t){setEditTask(t);setAddingTo(null);setAddingToToday(false);setShowTask(true);}if(onOpenedTask)onOpenedTask();},[openTaskId]);
@@ -561,7 +567,7 @@ if(editTask&&data.doneDate&&!editTask.doneDate&&(data.recur||editTask.recur)){co
   const completeTask=id=>{const task=tasks.find(t=>t.id===id);if(task?.inProgress){if(task.progressedOn===todayDS()){// Toggle off — uncheck progress for today
 setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:undefined}:x));return;}setProgressPrompt(task);return;}else{setTasks(prev=>{const updated=prev.map(x=>x.id===id?{...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})(),today:undefined}:x);const origTask=prev.find(x=>x.id===id);const next=spawnNext(origTask);if(next)return[...updated,next];return updated;});}};
   const handleProgressLog=(id,note,complete,followUpDate)=>{const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();setTasks(prev=>{let nextT=null;const upd=prev.map(x=>{if(x.id!==id)return x;const newLog=[...(x.progressLog||[]),{date:todayDS(),note:note.trim()}];if(complete){const doneX={...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:compTime,inProgress:undefined,progressLog:newLog};nextT=spawnNext({...x,progressLog:newLog});return doneX;}if(followUpDate){return{...x,progressLog:newLog,dueDate:followUpDate,waiting:true,today:true,progressedOn:todayDS(),onDeck:true};}return{...x,progressLog:newLog,today:true,progressedOn:todayDS()};});return nextT?[...upd,nextT]:upd;});setProgressPrompt(null);};
-  const removeFromToday=id=>{const task=tasks.find(t=>t.id===id);if(task?.recur){setTasks(prev=>prev.map(x=>x.id===id?{...x,today:undefined,dueDate:tomorrowDS()}:x));}else{setTasks(prev=>prev.map(x=>x.id===id?{...x,today:undefined,returnOn:tomorrowDS()}:x));}};
+  const removeFromToday=id=>{const task=tasks.find(t=>t.id===id);const pc=dayTypesOn(todayDS()).includes("mo")?{}:{pushCount:(task?.pushCount||0)+1,lastPushed:todayDS()};if(task?.recur){setTasks(prev=>prev.map(x=>x.id===id?{...x,...pc,today:undefined,dueDate:tomorrowDS()}:x));}else{setTasks(prev=>prev.map(x=>x.id===id?{...x,...pc,today:undefined,returnOn:tomorrowDS()}:x));}};
   const addToToday=id=>{const t=tasks.find(x=>x.id===id);setTasks(prev=>prev.map(x=>x.id===id?{...x,today:true,onDeck:undefined,returnOn:undefined}:x));if(t&&projects.find(p=>p.id===t.projectId&&p.parked))setProjects(prev=>prev.map(p=>p.id===t.projectId?{...p,parked:false}:p));};
   const reorderWaiting=(newArr)=>{
     setTasks(prev=>{
@@ -731,8 +737,8 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
           {proj.id==="misc"?<span style={{fontSize:"1rem",padding:"2px 2px 2px 6px"}} title="Misc is always open">🧺</span>
           :<span style={{cursor:"pointer",fontSize:"1rem",padding:"2px 2px"}} onClick={e=>{e.stopPropagation();setProjects(prev=>prev.map(p=>p.id!==proj.id?p:{...p,parked:!p.parked}));}} title={proj.parked?"Make active":"Park project"}>{proj.completed?"✅":proj.parked?"🅿️":"🟢"}</span>}
           {renameId===proj.id
-            ?<span style={{flex:1,display:"flex",gap:4,alignItems:"center",marginLeft:4}} onClick={e=>e.stopPropagation()}><input autoFocus style={{...S.input,padding:"4px 8px",fontSize:"16px"}} value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(proj.id);}}/><button style={{...S.btnIcon,width:30}} onClick={()=>saveRename(proj.id)} title="Save name">✓</button><button style={{...S.btnIcon,width:30}} onClick={()=>setRenameId(null)} title="Cancel">✕</button></span>
-            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:0,cursor:"pointer"}} onClick={()=>{if(proj.id==="misc"){setCollapsed(c=>({...c,[proj.id]:!c[proj.id]}));return;}setProjects(prev=>prev.map(p=>p.id===proj.id?{...p,ui:isOpen?"closed":"open"}:p));}}>{proj.name}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
+            ?<span style={{flex:1,display:"flex",gap:4,alignItems:"center",marginLeft:4}} onClick={e=>e.stopPropagation()}><input autoFocus style={{...S.input,padding:"4px 8px",fontSize:"16px"}} value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(proj.id);}}/><select title="Kind of day" style={{...S.select,width:"auto",padding:"4px 2px",fontSize:"16px"}} value={proj.dayType||""} onChange={e=>{const v=e.target.value;setProjects(prev=>prev.map(p=>p.id===proj.id?{...p,dayType:v}:p));}}><option value="">—</option>{DAY_TYPES.filter(([k])=>k!=="mo").map(([k,e])=><option key={k} value={k}>{e}</option>)}</select><button style={{...S.btnIcon,width:30}} onClick={()=>saveRename(proj.id)} title="Save name">✓</button><button style={{...S.btnIcon,width:30}} onClick={()=>setRenameId(null)} title="Cancel">✕</button></span>
+            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:0,cursor:"pointer"}} onClick={()=>{if(proj.id==="misc"){setCollapsed(c=>({...c,[proj.id]:!c[proj.id]}));return;}setProjects(prev=>prev.map(p=>p.id===proj.id?{...p,ui:isOpen?"closed":"open"}:p));}}>{proj.name}{proj.dayType&&DAY_EMOJI[proj.dayType]&&<span style={{fontSize:".78rem",marginLeft:5}} title={DAY_NAME[proj.dayType]+" project"}>{DAY_EMOJI[proj.dayType]}</span>}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
           {proj.completed?<span style={{fontSize:".75rem",color:C.pc,fontWeight:600}}>Completed {proj.completedOn}</span>:<span style={{fontSize:".75rem",color:C.text3}}>{pt.length} task{pt.length!==1?"s":""}</span>}
           {!proj.completed&&<button style={{...S.btnIcon,marginLeft:4,background:C.accent,borderColor:C.accent,color:"#fff",fontSize:".72rem",fontWeight:600,width:"auto",padding:"0 10px",height:26}} onClick={e=>{e.stopPropagation();setEditTask(null);setAddingTo(proj.id);setAddingToToday(false);setShowTask(true);}}>+ Task</button>}
           {proj.id!=="misc"&&!isOpen&&<button style={{...S.btnIcon,marginLeft:2}} onClick={e=>{e.stopPropagation();setConfirm({type:"project",id:proj.id,name:proj.name});}}>🗑</button>}
@@ -770,6 +776,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
   };
   return(<div>
     <GeorgeBar onReview={onReviewGeorge}/>
+    <DayTypeChips/>
     <div style={{background:`linear-gradient(135deg,${C.td2},${C.bg2})`,border:`1.5px solid #D4A820`,borderRadius:14,marginBottom:18,overflow:"hidden"}}>
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px"}}>
         <span style={{fontSize:"1.1rem"}}>🌅</span><span style={{fontFamily:"Georgia,serif",fontWeight:700,fontSize:"1rem",flex:1}}>Today</span>
@@ -1028,7 +1035,7 @@ function CheckInPanel({moodData,actData,tasks,coachLogs,dismissed,onDismiss,onSa
     let ctx="Recent mood/activity: "+JSON.stringify(recent)+".\nActive tasks: "+(ts.join(", ")||"none")+".\nCompleted last 7 days: "+(done.join(", ")||"none")+".";
     if(mems)ctx+="\n\n"+mems;
     if(recentChats)ctx+="\n\nRecent conversations:\n"+recentChats;
-    ctx+=geoKateCtx();
+    ctx+=geoKateCtx()+dayKateCtx();
     return ctx;};
   const send=async(msg)=>{
     const text=msg||reply.trim();if(!text||loading)return;setReply("");setLoading(true);setError("");setStarted(true);
@@ -1124,7 +1131,7 @@ function CoachTab({moodData,actData,tasks,projects,setTasks,coachMemory,onUpdate
   useEffect(()=>{const tl=(coachLogs[todayDS()]||[]).find(l=>l.type==="chat");if(tl)setChatHist(tl.messages);setChatLoaded(true);},[]);
   useEffect(()=>{if(chatLoaded&&chatHist.length>0&&onSaveLog)onSaveLog(todayDS(),"chat",chatHist);},[chatHist,chatLoaded]);
   useEffect(()=>{if(msgsRef.current)msgsRef.current.scrollTop=msgsRef.current.scrollHeight;},[chatHist,chatLoading]);
-  const buildCtx=useCallback(()=>{const recent=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood||null,phys:actData[k]?.phys||null});}const active=tasks.filter(t=>!t.doneDate).slice(0,6).map(t=>`[${t.priority}] ${t.title}`);const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);const sevenDS=toDS(sevenAgo.getFullYear(),sevenAgo.getMonth(),sevenAgo.getDate());const compl=tasks.filter(t=>t.doneDate&&t.doneDate!=="trivial"&&t.doneDate>=sevenDS).slice(-4).map(t=>t.title);const memStr=coachMemory.insights.length>0?"\n\nMemories about the user:\n"+coachMemory.insights.map((m,i)=>`${i+1}. ${m}`).join("\n"):"";const recentLogs=[];Object.entries(coachLogs||{}).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3).forEach(([dk,logs])=>{logs.forEach(log=>{if(log.messages){const notes=log.messages.filter(m=>m.role==="user"&&m.content&&m.content.length>10&&m.content!=="__pending__").map(m=>m.content).join(" / ");if(notes)recentLogs.push(`${dk}: ${notes}`);}});});const logsStr=recentLogs.length>0?"\n\nRecent check-in notes:\n"+recentLogs.join("\n"):"";return`Recent 7 days: ${JSON.stringify(recent)}. Active: ${active.join(", ")||"none"}. Completed: ${compl.join(", ")||"none"}.${logsStr}${memStr}${geoKateCtx()}`;},[moodData,actData,tasks,coachMemory]);
+  const buildCtx=useCallback(()=>{const recent=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);const k=toDS(d.getFullYear(),d.getMonth(),d.getDate());if(moodData[k]||actData[k])recent.push({date:k,mood:moodData[k]?.mood||null,phys:actData[k]?.phys||null});}const active=tasks.filter(t=>!t.doneDate).slice(0,6).map(t=>`[${t.priority}] ${t.title}`);const sevenAgo=new Date();sevenAgo.setDate(sevenAgo.getDate()-7);const sevenDS=toDS(sevenAgo.getFullYear(),sevenAgo.getMonth(),sevenAgo.getDate());const compl=tasks.filter(t=>t.doneDate&&t.doneDate!=="trivial"&&t.doneDate>=sevenDS).slice(-4).map(t=>t.title);const memStr=coachMemory.insights.length>0?"\n\nMemories about the user:\n"+coachMemory.insights.map((m,i)=>`${i+1}. ${m}`).join("\n"):"";const recentLogs=[];Object.entries(coachLogs||{}).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3).forEach(([dk,logs])=>{logs.forEach(log=>{if(log.messages){const notes=log.messages.filter(m=>m.role==="user"&&m.content&&m.content.length>10&&m.content!=="__pending__").map(m=>m.content).join(" / ");if(notes)recentLogs.push(`${dk}: ${notes}`);}});});const logsStr=recentLogs.length>0?"\n\nRecent check-in notes:\n"+recentLogs.join("\n"):"";return`Recent 7 days: ${JSON.stringify(recent)}. Active: ${active.join(", ")||"none"}. Completed: ${compl.join(", ")||"none"}.${logsStr}${memStr}${geoKateCtx()}${dayKateCtx()}`;},[moodData,actData,tasks,coachMemory]);
   const loadInsight=async()=>{setInsightLoading(true);setInsight("Thinking…");setInsightError("");setInsightSecs(0);const timer=setInterval(()=>setInsightSecs(s=>s+1),1000);const ht=setTimeout(()=>{clearInterval(timer);setInsightLoading(false);setInsight("");setInsightError("Timed out — tap Refresh again.");},30000);try{const h=new Date().getHours();const tc=h<12?"morning":h<17?"midday":"evening";const memList=coachMemory?.insights?.length>0?"Known about the user:\n"+coachMemory.insights.map((m,i)=>(i+1)+". "+m).join("\n"):"";const insightPrompt=`It is ${tc}. You are Kate, the user's personal coach. Using everything you know about them — their recent mood, tasks, and especially these memories: ${memList||"none saved yet"} — give them ONE brief, specific, personal insight or nudge. Reference something real from their life. Do not include any [[TASK:]] lines. 2 sentences max. Do NOT ask about anything already resolved in the memories.`;const txt=await askCoach([{role:"user",content:insightPrompt}],buildCtx());if(txt&&txt.length>20){setInsight(txt);storageSet("wh_insight_today",{date:todayDS(),text:txt});}else{setInsight("");setInsightError("Empty response — tap Refresh to try again.");}}catch(e){setInsight("");setInsightError("Error: "+e.message);}clearInterval(timer);clearTimeout(ht);setInsightLoading(false);};
   useEffect(()=>{if(insightLoadedRef.current)return;insightLoadedRef.current=true;storageGet("wh_insight_today",null).then(saved=>{if(saved&&saved.date===todayDS()&&saved.text&&saved.text.length>20)setInsight(saved.text);else setInsight("Tap Refresh for your check-in insight.");});},[]);
   const doPatterns=async()=>{setPatLoading(true);setPatResult("");setError("");try{const txt=await askCoach([{role:"user",content:"Look at my mood and activity data. What patterns do you see? Be specific and personal."}],buildCtx());setPatResult(txt);}catch(e){setError(e.message);}setPatLoading(false);};
@@ -1283,13 +1290,65 @@ function buildGeorgeFile(tasks,projects,coachLogs){
   const pr=id=>projects.find(p=>p.id===id);const when={A:"available",B:"soon",S:"scheduled",C:"someday"};
   const days=Object.entries(coachLogs||{}).filter(([k,l])=>(l||[]).some(x=>(x.messages||[]).some(m=>m.role==="user"))).map(([k])=>k).sort();
   const open=tasks.filter(t=>!t.doneDate).filter(t=>{const p=pr(t.projectId);return !(p&&(p.parked||p.completed));});
-  return {schemaVersion:2,exportedAt:isoLocal(new Date()),lastCheckIn:days.length?days[days.length-1]:null,fromGeorgeRecent:geoRecentForGeorge(),
+  const dstore=daysGet().days||{};const today=todayDS();const kinds=ds=>(dstore[ds]||{}).types||[];
+  const planned=[];for(let i=1;i<=7;i++){const ds=dsPlus(i);if(kinds(ds).length)planned.push({date:ds,dayTypes:kinds(ds)});}
+  const lastAct=pid=>{let best=null;tasks.forEach(t=>{if(t.projectId!==pid)return;[t.doneDate,t.progressedOn,t.addedDate].forEach(d=>{if(d&&/^\d{4}/.test(d)&&(!best||d>best))best=d;});});return best;};
+  return {schemaVersion:2,exportedAt:isoLocal(new Date()),lastCheckIn:days.length?days[days.length-1]:null,
+    today:{date:today,dayTypes:kinds(today)},plannedDays:planned,
+    projects:projects.filter(p=>!p.completed).map(p=>({name:p.name,dayType:p.dayType||null,parked:!!p.parked,lastActivity:lastAct(p.id)})),
+    fromGeorgeRecent:geoRecentForGeorge(),
     tasks:open.map(t=>({id:t.id,title:t.title,project:(pr(t.projectId)||{name:"Misc Tasks"}).name,when:when[t.priority]||"available",
       dueDate:t.dueDate||null,scheduledDate:t.priority==="S"&&t.schedDate?t.schedDate:null,waiting:!!t.waiting,waitingOn:t.waitingOn||null,
-      inProgress:!!t.inProgress,onToday:!!t.today,
+      inProgress:!!t.inProgress,onToday:!!t.today,onDeck:!t.today&&!!(t.onDeck||(effDate(t)&&effDate(t)<=dsPlus(3))),
+      pushCount:t.pushCount||0,lastPushed:t.lastPushed||null,dayType:taskDayType(t,projects)||null,
       recurring:t.recur?{every:recurEvery(t.recur),ifMissed:isManualRecur(t.recur)?"manual":(t.recurMode==="fixed"?"fixed":"flexible"),lastDone:lastDoneOf(t,tasks)}:null,
       notes:t.notes||""}))};
 }
+// ---- Kinds of day (11/04/26): Mo Day / Tech / Chore / Gym / Errands ----
+// Stored on the phone in ONE new item (wh_days_v6): which kinds each date is, George's day notes for Kate.
+const DAY_TYPES=[["mo","🌴","Mo Day"],["tech","💻","Tech"],["chore","🧹","Chore"],["gym","💪","Gym"],["errands","🛍️","Errands"]];
+const DAY_EMOJI=Object.fromEntries(DAY_TYPES.map(([k,e])=>[k,e]));const DAY_NAME=Object.fromEntries(DAY_TYPES.map(([k,,n])=>[k,n]));
+const DAYS_KEY="wh_days_v6";const Days={subs:new Set()};
+const daysGet=()=>{try{const d=JSON.parse(localStorage.getItem(DAYS_KEY)||"{}")||{};return {days:{},kateApplied:[],...d};}catch(e){return {days:{},kateApplied:[]};}};
+const daysSave=(patch,sync=true)=>{const d={...daysGet(),...patch};try{localStorage.setItem(DAYS_KEY,JSON.stringify(d));}catch(e){}Days.subs.forEach(f=>f(d));if(sync)setTimeout(()=>{if(typeof driveSync==="function"&&driveCfg().connected)driveSync();},1500);return d;};
+function useDays(){const [d,setD]=useState(daysGet());useEffect(()=>{Days.subs.add(setD);return()=>{Days.subs.delete(setD);};},[]);return d;}
+// Turn words like "day off", "chores", "errand" into our kinds
+function normDayTypes(v){const arr=Array.isArray(v)?v:String(v||"").split(/[,+&/]| and /);const out=[];
+  arr.forEach(x=>{const w=String(x||"").toLowerCase().trim();let k=null;
+    if(/\bmo\b|mo ?day|day off|off day|rest/.test(w))k="mo";else if(/tech|computer|code|mogo/.test(w))k="tech";else if(/chore|house|clean/.test(w))k="chore";else if(/gym|workout|exercise|pt\b|fitness/.test(w))k="gym";else if(/errand|shop/.test(w))k="errands";
+    if(k&&!out.includes(k))out.push(k);});return out;}
+const dayTypesOn=ds=>((daysGet().days||{})[ds]||{}).types||[];
+function setDayTypes(ds,types,by,sync=true){const d=daysGet();const cur=(d.days||{})[ds]||{};daysSave({days:{...(d.days||{}),[ds]:{...cur,types,setBy:by}}},sync);}
+function addGeorgeDayNote(ds,text,sync=true){const d=daysGet();const cur=(d.days||{})[ds]||{};const notes=[...(cur.georgeNotes||[]),text].slice(-5);daysSave({days:{...(d.days||{}),[ds]:{...cur,georgeNotes:notes}}},sync);}
+// What Kate is told about the kind of day + George's morning notes
+function dayKateCtx(){const t=todayDS();const d=(daysGet().days||{})[t]||{};let s="";
+  if((d.types||[]).length)s+="\n\nToday is a "+d.types.map(k=>DAY_NAME[k]).join(" + ")+" day."+(d.types.includes("mo")?" A Mo Day is the user's day off: don't push tasks; just check in on how she's doing.":"");
+  if((d.georgeNotes||[]).length)s+="\n\nThis morning the user already talked with George (her day-to-day assistant). He passed along: "+d.georgeNotes.map(n=>"“"+n+"”").join(" ")+"\nStart from this — don't ask her to repeat it.";
+  return s;}
+const DAY_RULES=`\n\nKinds of day: the user labels her days — Mo Day (her day off), Tech, Chore, Gym, Errands (a day can be more than one). If she tells you what kind of day today is, include a line [[DAY: tech, gym]] (her words are fine). For a future day use [[DAY: YYYY-MM-DD: chore]]. MoGo removes these lines before she sees your reply.`;
+// Kate's [[DAY: ...]] tags in her replies
+function applyKateDayTags(coachLogs){
+  const st=daysGet();const applied=new Set(st.kateApplied||[]);let changed=false;const newApplied=[...(st.kateApplied||[])];const today=todayDS();
+  Object.entries(coachLogs||{}).filter(([k])=>k>=dsPlus(-1)).forEach(([dk,logs])=>(logs||[]).forEach(l=>(l.messages||[]).forEach((m,mi)=>{
+    if(m.role!=="assistant"||!m.content)return;const re=/\[\[DAY:\s*([^\]]+?)\s*\]\]/gi;let x;
+    while((x=re.exec(m.content))){const fp=dk+"|"+(l.type||"")+"|"+mi+"|"+x[1];if(applied.has(fp))continue;applied.add(fp);newApplied.push(fp);
+      let target=dk===today?today:dk,val=x[1];const dm=val.match(/^(\d{4}-\d\d-\d\d)\s*:\s*(.+)$/);if(dm){target=dm[1];val=dm[2];}
+      const types=normDayTypes(val);if(types.length){setDayTypes(target,types,"kate",false);}changed=true;}})));
+  if(changed)daysSave({kateApplied:newApplied.slice(-200)});}
+// Row of kinds on Today
+function DayTypeChips(){const d=useDays();const t=todayDS();const cur=((d.days||{})[t]||{}).types||[];
+  return(<div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:4,marginBottom:12}}>
+    <span style={{fontSize:".72rem",color:C.text3}}>Today:</span>
+    {DAY_TYPES.map(([k,e,n])=>{const on=cur.includes(k);return <button key={k} onClick={()=>setDayTypes(t,on?cur.filter(x=>x!==k):[...cur,k],"you")} style={{padding:"3px 6px",borderRadius:14,border:`1px solid ${on?C.accent:C.border}`,background:on?C.accent:C.card,color:on?"#fff":C.text2,fontSize:".7rem",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{e} {n}</button>;})}
+  </div>);}
+const taskDayType=(t,projects)=>t.dayType||((projects||[]).find(p=>p.id===t.projectId)||{}).dayType||"";
+// Kate sorts untagged Misc tasks into kinds of day (one short call for up to 40 tasks)
+async function kateTagTasks(list){const apiKey=getApiKey();if(!apiKey||!list.length)return null;
+  try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true","x-api-key":apiKey},
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,system:"Sort each to-do item into the kind of day it suits: tech (computer/phone/app/online admin work), chore (housework, home or yard upkeep), gym (exercise, physical therapy, fitness), errands (going out: shopping, pickups, drop-offs, appointments around town), or none. Reply with JSON only: {\"<id>\":\"tech|chore|gym|errands|none\", ...}",
+      messages:[{role:"user",content:JSON.stringify(list.map(t=>({id:t.id,title:t.title,notes:(t.notes||"").slice(0,80)})))}]})});
+    if(!r.ok)return null;const j=await r.json();const txt=(j.content||[]).map(c=>c.text||"").join("");const m=txt.match(/\{[\s\S]*\}/);if(!m)return null;return JSON.parse(m[0]);}catch(e){return null;}}
+
 // ---- From George: inbox messages waiting for Maureen's OK (Session B, 11/03/26) ----
 // Stored on the phone in ONE new item (wh_george_v6): George's picture, notes for Kate, what was decided, and a copy of the waiting messages.
 const GEORGE_KEY="wh_george_v6";
@@ -1308,6 +1367,10 @@ async function geoSyncInbox(){
   const id=driveCfg().inboxFileId;if(!id)return;
   let j;try{j=JSON.parse(await dRead(id));}catch(e){return;} // unreadable/odd file: leave it alone
   if(!j||!Array.isArray(j.messages))return;
+  {const g0=geoGet();const d0=new Set((g0.handled||[]).map(h=>h.fp));const auto=j.messages.filter(m=>m&&typeof m==="object"&&(m.type==="setDay"||m.type==="dayNote")&&!d0.has(geoFp(m)));
+    if(auto.length){auto.forEach(m=>{const ds=/^\d{4}-\d\d-\d\d$/.test(m.date||"")?m.date:(m.sentAt||"").slice(0,10)||todayDS();const types=normDayTypes(m.dayTypes||m.dayType||m.types);
+        if(types.length)setDayTypes(ds,types,"george",false);if(m.type==="dayNote"&&(m.text||"").trim())addGeorgeDayNote(ds,m.text.trim(),false);});
+      geoSave({handled:[...(g0.handled||[]),...auto.map(m=>({fp:geoFp(m),result:"applied",date:todayDS(),type:m.type,title:m.title||"",sentAt:m.sentAt||""}))].slice(-300)});Drive.pending=true;}}
   const g=geoGet();const done=new Set((g.handled||[]).map(h=>h.fp));
   const keep=j.messages.filter(m=>!(m&&typeof m==="object"&&done.has(geoFp(m))));
   // keep a local copy of everything still waiting (plus anything already shown) so the box works offline
@@ -1477,8 +1540,9 @@ function FromGeorge({tasks,projects,setTasks,setProjects,onLater}){
 // ---- UI pieces ----
 function DriveChip(){
   const {status,msg}=useDrive();if(status==="off")return null;
-  const label={ok:"☁️✓",syncing:"☁️…",connecting:"☁️…",needs:"☁️ Tap",error:"☁️⚠️"}[status]||"☁️";
-  return <button title={msg||"Google Drive"} onClick={e=>{e.stopPropagation();if(status==="needs"||status==="error"){if(driveValid())driveSync();else driveConnect();}}} style={{...S.btnIcon,fontSize:".7rem",padding:"3px 6px",width:"auto",color:status==="needs"||status==="error"?C.pa:C.text3,borderColor:status==="needs"?C.pa:C.border,fontWeight:status==="needs"?700:500}}>{label}</button>;
+  // "needs" = Google's hour is up; shown as a plain cloud (next tap anywhere reconnects)
+  const label={ok:"☁️✓",syncing:"☁️…",connecting:"☁️…",needs:"☁️",error:"☁️⚠️"}[status]||"☁️";
+  return <button title={status==="needs"?"Drive paused — tap anywhere to reconnect":(msg||"Google Drive")} aria-label={status==="needs"?"Drive paused":"Google Drive"} onClick={e=>{e.stopPropagation();if(status==="needs"||status==="error"){if(driveValid())driveSync();else driveConnect();}}} style={{...S.btnIcon,fontSize:".7rem",padding:"3px 6px",width:"auto",color:status==="error"?C.pa:C.text3,borderColor:C.border,fontWeight:500}}>{label}</button>;
 }
 function DriveSettings(){
   const {status,msg}=useDrive();const cfg=driveCfg();const last=cfg.lastSync?new Date(cfg.lastSync).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"never";
@@ -1546,7 +1610,7 @@ function SettingsModal({onClose}){
 }
 
 function ExportModal({moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory,onClose,onImport}){
-  const exportStr=JSON.stringify({exportDate:new Date().toISOString(),moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory,aboutMe:getAboutMe(),george:geoGet()},null,2);
+  const exportStr=JSON.stringify({exportDate:new Date().toISOString(),moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory,aboutMe:getAboutMe(),george:geoGet(),days:daysGet()},null,2);
   const importRef=useRef();
   const [pasteVal,setPasteVal]=React.useState("");
   const [showPaste,setShowPaste]=React.useState(false);
@@ -1621,7 +1685,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
 
   // ---- Google Drive wiring ----
   const snapRef=useRef(null);snapRef.current={moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory};
-  Drive.getSnap=()=>{const s=snapRef.current;return {backup:{exportDate:new Date().toISOString(),...s,aboutMe:getAboutMe(),george:geoGet()},george:buildGeorgeFile(s.tasks,s.projects,s.coachLogs)};};
+  Drive.getSnap=()=>{const s=snapRef.current;return {backup:{exportDate:new Date().toISOString(),...s,aboutMe:getAboutMe(),george:geoGet(),days:daysGet()},george:buildGeorgeFile(s.tasks,s.projects,s.coachLogs)};};
   useEffect(()=>{if(!loaded)return;if(driveCfg().connected&&!driveValid()&&Drive.status==="off")driveSet("needs","Tap anywhere to sync with Drive.");},[loaded]);
   useEffect(()=>{if(!loaded||!driveCfg().connected)return;const t=setTimeout(driveSync,2500);return()=>clearTimeout(t);},[loaded,moodData,actData,tasks,projects,moodWords,actWords,coachLogs,coachMemory]);
   useEffect(()=>{const onVis=()=>{if(document.visibilityState==="visible"&&driveCfg().connected&&driveValid()&&Date.now()-(driveCfg().inboxRead||0)>2*60*1000)driveSync();};document.addEventListener("visibilitychange",onVis);return()=>document.removeEventListener("visibilitychange",onVis);},[]);
@@ -1634,7 +1698,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
   const undoRef=useRef({hist:[],prev:null,undoing:false,lastAt:0,readyAt:0});const [undoN,setUndoN]=useState(0);
   useEffect(()=>{if(loaded)undoRef.current.readyAt=Date.now()+2500;},[loaded]);
   useEffect(()=>{if(!loaded)return;const u=undoRef.current;const cur={tasks,projects};
-    if(!u.prev||Date.now()<u.readyAt||u.undoing){u.prev=cur;u.undoing=false;return;}
+    if(!u.prev||Date.now()<u.readyAt||u.undoing||u.skip){u.prev=cur;u.undoing=false;u.skip=false;return;}
     if(u.prev.tasks===tasks&&u.prev.projects===projects)return;
     const uiOnly=u.prev.tasks===tasks&&u.prev.projects.length===projects.length&&projects.every((p,i)=>{const o=u.prev.projects[i];if(o===p)return true;if(!o||o.id!==p.id)return false;const x={...o,ui:p.ui};return Object.keys({...x,...p}).every(k=>x[k]===p[k]);});
     if(uiOnly){u.prev=cur;return;} // just opening/closing a project — no Undo needed
@@ -1642,6 +1706,14 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
     if(now-u.lastAt<1000&&u.hist.length){/* same action, still settling — keep the earlier "before" */}else{u.hist.push({before:u.prev,label:describeChange(u.prev,cur)});if(u.hist.length>10)u.hist.shift();}
     u.lastAt=now;u.prev=cur;setUndoN(u.hist.length);},[loaded,tasks,projects]);
   const doUndo=()=>{const u=undoRef.current;const step=u.hist.pop();if(!step)return;u.undoing=true;u.lastAt=0;setTasks(step.before.tasks);setProjects(step.before.projects);setUndoN(u.hist.length);};
+  // Kinds of day: apply Kate's [[DAY:]] lines; default kinds for MoGo! and House Maintenance; Kate sorts untagged Misc tasks
+  useEffect(()=>{if(loaded)applyKateDayTags(coachLogs);},[loaded,coachLogs]);
+  useEffect(()=>{if(!loaded)return;setProjects(prev=>prev.some(p=>p.dayType===undefined&&(/mogo/i.test(p.name)||/house maint/i.test(p.name)))?prev.map(p=>p.dayType!==undefined?p:/mogo/i.test(p.name)?{...p,dayType:"tech"}:/house maint/i.test(p.name)?{...p,dayType:"chore"}:p):prev);},[loaded,projects]);
+  const tagTried=useRef(new Set());
+  useEffect(()=>{if(!loaded||!getApiKey())return;const t=setTimeout(async()=>{
+    const todo=tasks.filter(x=>x.projectId==="misc"&&!x.doneDate&&x.dayType===undefined&&!tagTried.current.has(x.id)).slice(0,40);if(!todo.length)return;
+    todo.forEach(x=>tagTried.current.add(x.id));const res=await kateTagTasks(todo);if(!res)return;
+    undoRef.current.skip=true;setTasks(prev=>prev.map(x=>{const v=res[x.id];if(x.dayType!==undefined||!v)return x;return {...x,dayType:["tech","chore","gym","errands"].includes(v)?v:""};}));},5000);return()=>clearTimeout(t);},[loaded,tasks]);
   // Missing moods: for past days (last 30) where you talked with Kate but didn't pick a mood, Kate guesses one
   const guessTried=useRef(new Set());
   useEffect(()=>{if(!loaded||!getApiKey())return;let stop=false;const t=setTimeout(async()=>{
@@ -1652,7 +1724,7 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
   },4000);return()=>{stop=true;clearTimeout(t);};},[loaded,dayKey]);
   const handleUpdateMemory=mem=>{setCoachMemory(mem);saveCoachMemory(mem);};
   const saveCoachLog=(dateKey,type,messages,meta={})=>{setCoachLogs(prev=>{const existing=prev[dateKey]||[];const filtered=existing.filter(l=>l.type!==type);return{...prev,[dateKey]:[...filtered,{type,messages,savedAt:new Date().toISOString(),...meta}]};});if(meta.mood&&type!=="chat"){setMoodData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,mood:meta.mood,words:meta.words||[],inferred:undefined}}});}if(meta.phys&&type==="evening"){setActData(prev=>{const e=prev[dateKey]||{};return{...prev,[dateKey]:{...e,phys:meta.phys}}});}};
-  const handleImport=d=>{if(d.tasks)setTasks(d.tasks);if(d.projects)setProjects(d.projects);if(d.moodData)setMoodData(d.moodData);if(d.actData)setActData(d.actData);if(d.moodWords)setMoodWords(d.moodWords);if(d.actWords)setActWords(d.actWords);if(d.coachLogs)setCoachLogs(d.coachLogs);if(d.coachMemory&&Array.isArray(d.coachMemory.insights))handleUpdateMemory(d.coachMemory);if(typeof d.aboutMe==="string"&&d.aboutMe.trim())setAboutMe(d.aboutMe);if(d.george&&typeof d.george==="object"&&!Array.isArray(d.george))geoSave(d.george);};
+  const handleImport=d=>{if(d.tasks)setTasks(d.tasks);if(d.projects)setProjects(d.projects);if(d.moodData)setMoodData(d.moodData);if(d.actData)setActData(d.actData);if(d.moodWords)setMoodWords(d.moodWords);if(d.actWords)setActWords(d.actWords);if(d.coachLogs)setCoachLogs(d.coachLogs);if(d.coachMemory&&Array.isArray(d.coachMemory.insights))handleUpdateMemory(d.coachMemory);if(typeof d.aboutMe==="string"&&d.aboutMe.trim())setAboutMe(d.aboutMe);if(d.george&&typeof d.george==="object"&&!Array.isArray(d.george))geoSave(d.george);if(d.days&&typeof d.days==="object"&&d.days.days)daysSave(d.days,false);};
   const saveMood=(key,data)=>{setMoodData(m=>({...m,[key]:data}));setMoodModal(null);};
   const handleAddWord=(target,words,setWords)=>setWordModal({target,words,setWords});
   const saveWord=word=>{const{target,words,setWords}=wordModal;if(target==="mood")setMoodWords(w=>w.includes(word)?w:[...w,word]);else setActWords(w=>w.includes(word)?w:[...w,word]);if(!words.includes(word))setWords([...words,word]);setWordModal(null);};
