@@ -60,12 +60,18 @@ const schedOf=t=>t.priority==="S"&&t.schedDate?t.schedDate:null;
 const effDate=t=>{const a=t.dueDate||null,b=schedOf(t);if(a&&b)return a<b?a:b;return a||b;};
 // List order (11/04/26): This week (overdue or dated within 7 days) → Available → Scheduled within a month → Soon → Scheduled later → Someday
 const dsPlus=n=>{const d=new Date();d.setDate(d.getDate()+n);return toDS(d.getFullYear(),d.getMonth(),d.getDate());};
+const pushedLabel=t=>!t.today&&t.returnOn?"↻ "+(t.returnOn<=tomorrowDS()?"Tmrw":fmtDueDate(t.returnOn)):null;
+// Fixed-schedule task that MoGo already moved past a missed date (missedOn): is this check-off for the missed date?
+// Yes when it was done closer to the missed date than to the next one (e.g. missed Mon, done Tue/Wed).
+const dayDiff=(a,b)=>Math.round((new Date(b+"T12:00:00")-new Date(a+"T12:00:00"))/86400000);
+const doneForMissed=(t,doneOn)=>!!(t&&t.recur&&t.recurMode==="fixed"&&t.missedOn&&t.dueDate&&doneOn>=t.missedOn&&doneOn<t.dueDate&&dayDiff(t.missedOn,doneOn)<dayDiff(doneOn,t.dueDate));
+// Record the missed date as done; the task keeps its next date
+const recordMissed=(prev,t,doneOn,extra={})=>[...prev.map(x=>x.id===t.id?{...x,missedOn:undefined,lastDone:doneOn,today:undefined}:x),{...t,...extra,id:uid(),doneDate:doneOn,completedOn:doneOn,today:undefined,missedOn:undefined,dueDate:t.missedOn,autoTodayOn:undefined,pushCount:undefined,lastPushed:undefined}];
 const LIST_GROUPS=["W","A","S1","B","S2","C"];
 const listGroup=t=>{const d=effDate(t);if(d&&d<=dsPlus(7))return "W";if(t.priority==="S"){const s=t.schedDate;return (!s||s<=dsPlus(30))?"S1":"S2";}return t.priority==="B"?"B":t.priority==="C"?"C":"A";};
 // Inside a group: ALL CAPS first, then dated within a month (earliest first), then undated, then dated later
 const listRank=t=>{const d=effDate(t);return !d?1:d<=dsPlus(30)?0:2;};
-let CUR_DAY_TYPES=[];
-const listSort=(a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ma=!!a.dayType&&CUR_DAY_TYPES.includes(a.dayType),mb=!!b.dayType&&CUR_DAY_TYPES.includes(b.dayType);if(ma!==mb)return ma?-1:1;const ra=listRank(a),rb=listRank(b);if(ra!==rb)return ra-rb;const ad=effDate(a),bd=effDate(b);if(ad&&bd&&ad!==bd)return ad<bd?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;};
+const listSort=(a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ra=listRank(a),rb=listRank(b);if(ra!==rb)return ra-rb;const ad=effDate(a),bd=effDate(b);if(ad&&bd&&ad!==bd)return ad<bd?-1:1;if(a.inProgress&&!b.inProgress)return-1;if(!a.inProgress&&b.inProgress)return 1;return 0;};
 function isStale(task){
   if(task.doneDate||task.waiting||task.inProgress)return false;
   if(!STALE_DAYS[task.priority])return false;
@@ -149,10 +155,10 @@ function nextDueDate(recur){return addInterval(todayDS(),recur);}
 // Fixed: stay on the calendar rhythm — step from the scheduled date until past today
 function nextFixedDate(dueDate,recur){const today=todayDS();let n=addInterval(dueDate||today,recur);let g=0;while(n<=today&&g++<1000)n=addInterval(n,recur);return n;}
 // Build the next copy of a recurring task after it's completed (null if not recurring)
-function spawnNext(orig){
-  if(!orig||!orig.recur)return null;const today=todayDS();const manual=isManualRecur(orig.recur);
-  const nd=manual?undefined:(orig.recurMode==="fixed"?nextFixedDate(orig.dueDate,orig.recur):nextDueDate(orig.recur));
-  return{...orig,id:uid(),pushCount:undefined,lastPushed:undefined,doneDate:null,today:undefined,completedOn:undefined,completedTime:undefined,inProgress:false,waiting:false,waitingOn:undefined,progressedOn:undefined,onDeck:undefined,addedDate:today,dueDate:nd,calculatedDate:nd?true:undefined,priority:"B",lastDone:today,needsNextDate:manual?true:undefined};
+function spawnNext(orig,doneOn){
+  if(!orig||!orig.recur)return null;const today=todayDS();const manual=isManualRecur(orig.recur);const dOn=doneOn&&doneOn<=today?doneOn:today;
+  const nd=manual?undefined:(orig.recurMode==="fixed"?nextFixedDate(orig.dueDate,orig.recur):addInterval(dOn,orig.recur));
+  return{...orig,id:uid(),pushCount:undefined,lastPushed:undefined,doneDate:null,today:undefined,completedOn:undefined,completedTime:undefined,inProgress:false,waiting:false,waitingOn:undefined,progressedOn:undefined,onDeck:undefined,addedDate:today,dueDate:nd,calculatedDate:nd?true:undefined,priority:"B",lastDone:dOn,missedOn:undefined,autoTodayOn:undefined,needsNextDate:manual?true:undefined};
 }
 // Most recent completion date for a recurring task (from the task itself or its completed copies)
 function lastDoneOf(task,tasks){let best=task.lastDone||"";for(const t of tasks){if(t.doneDate&&t.recur&&t.title===task.title&&t.projectId===task.projectId){const d=t.doneDate!=="trivial"?t.doneDate:(t.completedOn||"");if(d>best)best=d;}}return best||null;}
@@ -329,10 +335,9 @@ function WordModal({onSave,onClose}){const [val,setVal]=useState("");return(<div
 
 function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,onDelete,lastDone,onCreateProject,heading}){
   const [newProj,setNewProj]=useState(null);
-  const [dayT,setDayT]=useState(task?.dayType||"");
   const [title,setTitle]=useState(task?.title||"");const [notes,setNotes]=useState(task?.notes||"");const [pri,setPri]=useState(task?.priority||"A");const [schedDate,setSchedDate]=useState(task?.schedDate||"");const [projId,setProjId]=useState(task?.projectId||defaultProjectId||"misc");
   const [waiting,setWaiting]=useState(!!task?.waiting);const [waitingOn,setWaitingOn]=useState(task?.waitingOn||"");
-  const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [markComplete,setMarkComplete]=useState(!!task?.doneDate);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const [recurMode,setRecurMode]=useState(task?.recurMode||"flex");const [recalcNote,setRecalcNote]=useState("");
+  const [inProgress,setInProgress]=useState(!!task?.inProgress);const [trivial,setTrivial]=useState(!!task?.trivial);const [doneOn,setDoneOn]=useState(todayDS());const [markComplete,setMarkComplete]=useState(!!task?.doneDate);const [completeNote,setCompleteNote]=useState("");const [progressNote,setProgressNote]=useState("");const [dueDate,setDueDate]=useState(task?.dueDate||"");const [recur,setRecur]=useState(task?.recur||"");const [recurMode,setRecurMode]=useState(task?.recurMode||"flex");const [recalcNote,setRecalcNote]=useState("");
   // Changing how often a task repeats recalculates the next date from the last time it was done
   const recurFirst=useRef(true);
   useEffect(()=>{if(recurFirst.current){recurFirst.current=false;return;}if(recur&&!isManualRecur(recur)&&lastDone){setDueDate(addInterval(lastDone,recur));setRecalcNote(`Recalculated from last done: ${fmtDueDate(lastDone)}`);}else setRecalcNote("");},[recur]);const progressLog=task?.progressLog||[];
@@ -344,8 +349,8 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
         const dd=opts.dueOverride!==undefined?opts.dueOverride:dueDate;
         if(!opts.skipConflict&&!recur&&pri==="S"&&schedDate&&dd&&schedDate>dd){setSchedConflict(true);return;}
         const newLog=[...(progressNote.trim()?[...progressLog,{date:todayDS(),note:progressNote.trim()}]:progressLog),...(completeNote.trim()?[{date:todayDS(),note:"[Complete] "+completeNote.trim()}]:[])];
-        const doneVal=markComplete?(task?.doneDate||todayDS()):undefined;
-        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dd?(dd<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({dayType:dayT!==(task?.dayType||"")?dayT:task?.dayType,title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:undefined,progressLog:newLog.length?newLog:undefined,dueDate:dd||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dd&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?(task?.doneDate?(task.completedOn||task.doneDate):todayDS()):undefined,onDeck:waiting?task?.onDeck:undefined});
+        const doneVal=markComplete?(task?.doneDate||(doneOn&&doneOn<=todayDS()?doneOn:todayDS())):undefined;
+        const today3=new Date();today3.setDate(today3.getDate()+3);const ds3=toDS(today3.getFullYear(),today3.getMonth(),today3.getDate());const autoPri=recur?(dd?(dd<=ds3?"A":"B"):(pri==="S"?"B":pri)):pri;onSave({title:title.trim(),notes:notes.trim(),priority:autoPri,schedDate:(!recur&&pri==="S")?schedDate:undefined,projectId:projId,waiting:markComplete?undefined:waiting||undefined,waitingOn:markComplete?undefined:waitingOn.trim()||undefined,inProgress:markComplete?undefined:inProgress||undefined,trivial:undefined,progressLog:newLog.length?newLog:undefined,dueDate:dd||undefined,recur:recur||undefined,recurMode:(recur&&!isManualRecur(recur)&&recurMode==="fixed")?"fixed":undefined,needsNextDate:(recur&&isManualRecur(recur)&&!dd&&task?.needsNextDate&&!markComplete)?true:undefined,doneDate:doneVal,completedOn:markComplete?(task?.doneDate?(task.completedOn||task.doneDate):(doneOn&&doneOn<=todayDS()?doneOn:todayDS())):undefined,onDeck:waiting?task?.onDeck:undefined});
   };
   return(<div style={S.overlay} onClick={onClose}><div style={S.modal} onClick={e=>e.stopPropagation()}>
     <div style={{fontFamily:"Georgia,serif",fontSize:"1.1rem",fontWeight:600,marginBottom:16}}>{heading||(task?"Edit Task":"Add Task")}</div>
@@ -355,7 +360,7 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
       :<div style={{display:"flex",gap:6}}><input autoFocus style={{...S.input,flex:1}} value={newProj} onChange={e=>setNewProj(e.target.value)} placeholder="New project name" onKeyDown={e=>{if(e.key==="Enter"&&newProj.trim()){setProjId(onCreateProject(newProj.trim()));setNewProj(null);}}}/><button style={btn("primary",{padding:"6px 12px"})} onClick={()=>{if(!newProj.trim())return;setProjId(onCreateProject(newProj.trim()));setNewProj(null);}}>Add</button><button style={btn("ghost",{padding:"6px 10px"})} onClick={()=>setNewProj(null)}>✕</button></div>}
     </FormRow>
     {recur?<FormRow label="When"><div style={{fontSize:".8rem",color:C.text3,fontStyle:"italic"}}>🔁 Recurring tasks appear On Deck automatically 3 days before their next date.</div></FormRow>
-    :<FormRow label="When"><select style={S.select} value={pri} onChange={e=>setPri(e.target.value)}><option value="A">Available</option><option value="B">Soon</option><option value="S">Scheduled</option><option value="C">Someday</option></select>
+    :<FormRow label="When"><select style={S.select} value={pri} onChange={e=>{const v=e.target.value;setPri(v);if(v==="S"&&!schedDate&&dueDate)setSchedDate(dueDate);}}><option value="A">Available</option><option value="B">Soon</option><option value="S">Scheduled</option><option value="C">Someday</option></select>
       {pri==="S"&&<div style={{display:"flex",gap:6,alignItems:"center",marginTop:6}}><span style={{fontSize:".8rem",color:C.text2,flexShrink:0}}>📅 Do it on</span><input type="date" style={{...S.input,flex:"0 0 auto",width:150,fontSize:".84rem",padding:"6px 8px"}} value={schedDate} onChange={e=>setSchedDate(e.target.value)}/></div>}
     </FormRow>}
     <FormRow label="Status">
@@ -366,6 +371,9 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
       </div>
       {waiting&&<input style={{...S.input,marginTop:6,fontSize:".84rem"}} value={waitingOn} onChange={e=>setWaitingOn(e.target.value)} placeholder="Who or what are you waiting on? (required)"/>}
       {inProgress&&<textarea style={{...S.textarea,marginTop:6,fontSize:".84rem"}} value={progressNote} onChange={e=>setProgressNote(e.target.value)} placeholder={`What did you do today? (${todayDS()})`}/>}
+      {markComplete&&!task?.doneDate&&<div style={{display:"flex",alignItems:"center",gap:6,marginTop:6,flexWrap:"wrap",fontSize:".8rem",color:C.text2}}>Done:
+        {[["Today",todayDS()],["Yesterday",dsPlus(-1)]].map(([l,d])=><button key={l} type="button" onClick={()=>setDoneOn(d)} style={{padding:"3px 10px",borderRadius:12,border:`1px solid ${doneOn===d?C.accent:C.border}`,background:doneOn===d?C.accent:C.card,color:doneOn===d?"#fff":C.text2,fontSize:".76rem",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>)}
+        <input type="date" aria-label="Done on" max={todayDS()} value={doneOn} onChange={e=>setDoneOn(e.target.value||todayDS())} style={{...S.input,width:"auto",padding:"3px 6px",fontSize:"16px"}}/></div>}
       {markComplete&&<textarea style={{...S.textarea,marginTop:6,fontSize:".84rem"}} value={completeNote} onChange={e=>setCompleteNote(e.target.value)} placeholder="Completion notes (optional)…"/>}
     </FormRow>
     <FormRow label={recur?"Next date":"Due date (get it done by)"}>
@@ -381,7 +389,6 @@ function TaskModal({task,projects,defaultProjectId,onSave,onClose,onRemoveToday,
       {recur&&isManualRecur(recur)&&<div style={{fontSize:".74rem",color:C.text3,marginTop:4,fontStyle:"italic"}}>When you complete it, you'll be asked for the next date.</div>}
     </FormRow>
     <FormRow label="Notes"><textarea style={S.textarea} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Details, context, links…"/></FormRow>
-    <FormRow label="Kind of day"><select style={S.select} value={dayT} onChange={e=>setDayT(e.target.value)}><option value="">— any day —</option>{DAY_TYPES.filter(([k])=>k!=="mo").map(([k,e,n])=><option key={k} value={k}>{e} {n}</option>)}</select></FormRow>
     {progressLog.length>0&&<FormRow label="Progress Log"><div style={{maxHeight:120,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>{[...progressLog].reverse().map((entry,i)=><div key={i} style={{fontSize:".78rem",padding:"4px 8px",background:C.bg2,borderRadius:6,border:`1px solid ${C.border}`}}><span style={{color:C.text3,fontWeight:600}}>{entry.date}: </span><span style={{color:C.text2}}>{entry.note}</span></div>)}</div></FormRow>}
     <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
       <button style={btn("ghost")} onClick={onClose}>Cancel</button>
@@ -415,7 +422,7 @@ function ProjectModal({onSave,onClose}){const [name,setName]=useState("");return
 
 
 
-function TaskRow({task,onComplete,onEdit,dragHandleProps,onSnooze,isParked}){
+function TaskRow({task,onComplete,onEdit,dragHandleProps,onSnooze,isParked,noReturnTag}){
   const [hov,setHov]=useState(false);
   const isWaiting=!!task.waiting&&!task.inProgress&&!task.onDeck;
   // stale check moved inline
@@ -424,10 +431,10 @@ function TaskRow({task,onComplete,onEdit,dragHandleProps,onSnooze,isParked}){
     <div onClick={()=>onComplete(task.id)} style={{width:16,height:16,border:`2px solid ${C.border}`,borderRadius:4,cursor:"pointer",flexShrink:0,marginTop:2}}/>
     <div style={{flex:1,minWidth:0}}>
       <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-        <span style={{fontSize:".87rem",lineHeight:1.35,color:isWaiting?C.text3:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>onEdit&&onEdit(task)}>{task.title}</span>{task.dayType&&DAY_EMOJI[task.dayType]&&<span style={{fontSize:".72rem"}} title={DAY_NAME[task.dayType]}>{DAY_EMOJI[task.dayType]}</span>}
+        <span style={{fontSize:".87rem",lineHeight:1.35,color:isWaiting?C.text3:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:3}} onClick={()=>onEdit&&onEdit(task)}>{task.title}</span>
         {isWaiting&&<span style={{fontSize:".8rem"}}>⏸️</span>}
         {task.inProgress&&!isWaiting&&<span style={{fontSize:".8rem"}}>⏳</span>}
-        {task.returnOn&&!task.today&&<span style={{fontSize:".66rem",color:C.text3,border:`1px solid ${C.border}`,borderRadius:8,padding:"0 5px"}} title="Comes back to Today">↻ {task.returnOn<=tomorrowDS()?"Tmrw":fmtDueDate(task.returnOn)}</span>}
+        {task.returnOn&&!task.today&&!noReturnTag&&<span style={{fontSize:".66rem",color:C.text3,border:`1px solid ${C.border}`,borderRadius:8,padding:"0 5px"}} title="Comes back to Today">↻ {task.returnOn<=tomorrowDS()?"Tmrw":fmtDueDate(task.returnOn)}</span>}
         {schedOf(task)&&<DueBadge dueDate={task.schedDate} sched/>}{task.dueDate&&<DueBadge dueDate={task.dueDate} calculatedDate={task.calculatedDate}/>}
       </div>
       {task.notes&&!task.waitingOn&&!task.inProgress&&<div style={{fontSize:".77rem",color:C.text3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.notes}</div>}
@@ -544,9 +551,9 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
       <div key={task.id} ref={el=>stateRef.current.rowEls[ti]=el}
         style={{display:"flex",alignItems:"flex-start",gap:4}}>
         <div ref={el=>stateRef.current.handleEls[ti]=el} style={{color:C.text3,fontSize:"1rem",flexShrink:0,cursor:"grab",userSelect:"none",WebkitUserSelect:"none",padding:"4px 6px 4px 2px",touchAction:"none"}}>⠿</div>
-        <div style={{flex:1}}><TaskRow task={task} onComplete={completeTask} onEdit={t=>{setEditTask(t);setShowTask(true);}} isParked={isParked} onSnooze={id=>setTasks(prev=>prev.map(x=>x.id===id?{...x,snoozedUntil:new Date(Date.now()+10*24*60*60*1000).toISOString().slice(0,10)}:x))}/></div>
+        <div style={{flex:1,minWidth:0}}><TaskRow noReturnTag task={task} onComplete={completeTask} onEdit={t=>{setEditTask(t);setShowTask(true);}} isParked={isParked} onSnooze={id=>setTasks(prev=>prev.map(x=>x.id===id?{...x,snoozedUntil:new Date(Date.now()+10*24*60*60*1000).toISOString().slice(0,10)}:x))}/></div>
         <div style={{display:"flex",gap:4}}>
-          <button onClick={()=>task.today?removeFromToday(task.id):addToToday(task.id)} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,color:task.today?"#B8941F":C.text3,border:`1px solid ${task.today?"#B8941F":C.border}`,borderRadius:8,background:task.today?C.td2:"transparent",cursor:"pointer"}}>{task.today?"− Today":"+ Today"}</button>
+          <button title={pushedLabel(task)?"Pushed — comes back to Today by itself. Tap to bring it back now.":undefined} onClick={()=>task.today?removeFromToday(task.id):addToToday(task.id)} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,whiteSpace:"nowrap",color:task.today?"#B8941F":C.text3,border:`1px ${pushedLabel(task)?"dashed":"solid"} ${task.today?"#B8941F":C.border}`,borderRadius:8,background:task.today?C.td2:"transparent",cursor:"pointer"}}>{task.today?"− Today":pushedLabel(task)||"+ Today"}</button>
         </div>
       </div>
     ))}
@@ -554,7 +561,7 @@ function PriorityGroup({projId,pri,priTasks,priLabel,priCol,completeTask,setEdit
 }
 
 function TodoTab({tasks,projects,setTasks,setProjects,openTaskId,onOpenedTask,onReviewGeorge}){
-  const dstore=useDays();CUR_DAY_TYPES=(((dstore.days||{})[todayDS()]||{}).types)||[];
+
   const [showTask,setShowTask]=useState(false);const [editTask,setEditTask]=useState(null);const [showProj,setShowProj]=useState(false);const [collapsed,setCollapsed]=useState({__recur__:true,__waiting__:true,__completedProjs__:true});const [confirm,setConfirm]=useState(null);const [addingTo,setAddingTo]=useState(null);const [addingToToday,setAddingToToday]=useState(false);const [progressPrompt,setProgressPrompt]=useState(null);const [nextLater,setNextLater]=useState([]);
   const active=tasks.filter(t=>!t.doneDate);
   useEffect(()=>{if(!openTaskId)return;const t=tasks.find(x=>x.id===openTaskId);if(t){setEditTask(t);setAddingTo(null);setAddingToToday(false);setShowTask(true);}if(onOpenedTask)onOpenedTask();},[openTaskId]);
@@ -562,10 +569,11 @@ function TodoTab({tasks,projects,setTasks,setProjects,openTaskId,onOpenedTask,on
   const _todayProgressed=active.filter(t=>t.today&&t.progressedOn===todayDS());
   const _todayDone=tasks.filter(t=>t.completedOn===todayDS()&&t.doneDate);
   const todayTasks=[..._todayActive,..._todayProgressed,..._todayDone];
-  const saveTask=data=>{const isToday=addingToToday;const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();const shouldBeToday=(()=>{if(!isToday)return false;if(data.priority==="A"&&data.projectId==="misc")return true;if(data.dueDate){const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);return data.dueDate<=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());}return false;})();setTasks(prev=>{const updated=editTask?prev.map(t=>{if(t.id!==editTask.id)return t;const hadProgress=t.progressLog?.length||0;const hasNewProgress=data.progressLog?.length>hadProgress;const setProgressed=data.inProgress&&hasNewProgress?{progressedOn:todayDS()}:{};const futureSched=data.priority==="S"&&data.schedDate&&data.schedDate>todayDS()?{today:undefined,returnOn:undefined}:{};return{...t,...data,...setProgressed,...futureSched,completedTime:data.doneDate?compTime:t.completedTime};}):[...prev,{id:uid(),...data,addedDate:todayDS(),doneDate:data.doneDate||null,today:shouldBeToday?true:undefined}];// If completing a recurring task, create next instance
-if(editTask&&data.doneDate&&!editTask.doneDate&&(data.recur||editTask.recur)){const next=spawnNext({...editTask,...data});if(next)return[...updated,next];}return updated;});setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);};
+  const saveTask=data=>{const isToday=addingToToday;const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();const shouldBeToday=(()=>{if(!isToday)return false;/* 11/07: anything added from the Today card stays on Today, unless waiting or planned for a later date */if(data.waiting)return false;if(data.priority==="S"&&data.schedDate&&data.schedDate>todayDS())return false;if(data.recur&&data.dueDate&&data.dueDate>todayDS())return false;return true;})();setTasks(prev=>{const updated=editTask?prev.map(t=>{if(t.id!==editTask.id)return t;const hadProgress=t.progressLog?.length||0;const hasNewProgress=data.progressLog?.length>hadProgress;const setProgressed=data.inProgress&&hasNewProgress?{progressedOn:todayDS()}:{};const futureSched=data.priority==="S"&&data.schedDate&&data.schedDate>todayDS()?{today:undefined,returnOn:undefined}:{};return{...t,...data,...setProgressed,...futureSched,completedTime:data.doneDate?compTime:t.completedTime};}):[...prev,{id:uid(),...data,addedDate:todayDS(),doneDate:data.doneDate||null,today:shouldBeToday?true:undefined}];// If completing a recurring task, create next instance
+if(editTask&&data.doneDate&&!editTask.doneDate&&doneForMissed({...editTask,recurMode:data.recurMode||editTask.recurMode,dueDate:editTask.dueDate},data.doneDate)){const {doneDate,completedOn,...rest}=data;const live={...editTask,...rest,doneDate:null,completedOn:undefined};return recordMissed(prev.map(x=>x.id===editTask.id?live:x),live,data.doneDate,{completedTime:compTime});}
+if(editTask&&data.doneDate&&!editTask.doneDate&&(data.recur||editTask.recur)){const next=spawnNext({...editTask,...data},data.doneDate);if(next)return[...updated,next];}return updated;});setShowTask(false);setEditTask(null);setAddingTo(null);setAddingToToday(false);};
   const completeTask=id=>{const task=tasks.find(t=>t.id===id);if(task?.inProgress){if(task.progressedOn===todayDS()){// Toggle off — uncheck progress for today
-setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:undefined}:x));return;}setProgressPrompt(task);return;}else{setTasks(prev=>{const updated=prev.map(x=>x.id===id?{...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})(),today:undefined}:x);const origTask=prev.find(x=>x.id===id);const next=spawnNext(origTask);if(next)return[...updated,next];return updated;});}};
+setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:undefined}:x));return;}setProgressPrompt(task);return;}else{if(doneForMissed(task,todayDS())){setTasks(prev=>recordMissed(prev,task,todayDS(),{completedTime:(()=>{const h=new Date().getHours();return h<12?"morning":h<17?"afternoon":"evening";})()}));return;}setTasks(prev=>{const updated=prev.map(x=>x.id===id?{...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})(),today:undefined}:x);const origTask=prev.find(x=>x.id===id);const next=spawnNext(origTask);if(next)return[...updated,next];return updated;});}};
   const handleProgressLog=(id,note,complete,followUpDate)=>{const compTime=(()=>{const n=new Date();const h=n.getHours();return h<12?"morning":h<17?"afternoon":"evening";})();setTasks(prev=>{let nextT=null;const upd=prev.map(x=>{if(x.id!==id)return x;const newLog=[...(x.progressLog||[]),{date:todayDS(),note:note.trim()}];if(complete){const doneX={...x,doneDate:todayDS(),completedOn:todayDS(),completedTime:compTime,inProgress:undefined,progressLog:newLog};nextT=spawnNext({...x,progressLog:newLog});return doneX;}if(followUpDate){return{...x,progressLog:newLog,dueDate:followUpDate,waiting:true,today:true,progressedOn:todayDS(),onDeck:true};}return{...x,progressLog:newLog,today:true,progressedOn:todayDS()};});return nextT?[...upd,nextT]:upd;});setProgressPrompt(null);};
   const removeFromToday=id=>{const task=tasks.find(t=>t.id===id);const pc=dayTypesOn(todayDS()).includes("mo")?{}:{pushCount:(task?.pushCount||0)+1,lastPushed:todayDS()};if(task?.recur){setTasks(prev=>prev.map(x=>x.id===id?{...x,...pc,today:undefined,dueDate:tomorrowDS()}:x));}else{setTasks(prev=>prev.map(x=>x.id===id?{...x,...pc,today:undefined,returnOn:tomorrowDS()}:x));}};
   const addToToday=id=>{const t=tasks.find(x=>x.id===id);setTasks(prev=>prev.map(x=>x.id===id?{...x,today:true,onDeck:undefined,returnOn:undefined}:x));if(t&&projects.find(p=>p.id===t.projectId&&p.parked))setProjects(prev=>prev.map(p=>p.id===t.projectId?{...p,parked:false}:p));};
@@ -737,8 +745,8 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
           {proj.id==="misc"?<span style={{fontSize:"1rem",padding:"2px 2px 2px 6px"}} title="Misc is always open">🧺</span>
           :<span style={{cursor:"pointer",fontSize:"1rem",padding:"2px 2px"}} onClick={e=>{e.stopPropagation();setProjects(prev=>prev.map(p=>p.id!==proj.id?p:{...p,parked:!p.parked}));}} title={proj.parked?"Make active":"Park project"}>{proj.completed?"✅":proj.parked?"🅿️":"🟢"}</span>}
           {renameId===proj.id
-            ?<span style={{flex:1,display:"flex",gap:4,alignItems:"center",marginLeft:4}} onClick={e=>e.stopPropagation()}><input autoFocus style={{...S.input,padding:"4px 8px",fontSize:"16px"}} value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(proj.id);}}/><select title="Kind of day" style={{...S.select,width:"auto",padding:"4px 2px",fontSize:"16px"}} value={proj.dayType||""} onChange={e=>{const v=e.target.value;setProjects(prev=>prev.map(p=>p.id===proj.id?{...p,dayType:v}:p));}}><option value="">—</option>{DAY_TYPES.filter(([k])=>k!=="mo").map(([k,e])=><option key={k} value={k}>{e}</option>)}</select><button style={{...S.btnIcon,width:30}} onClick={()=>saveRename(proj.id)} title="Save name">✓</button><button style={{...S.btnIcon,width:30}} onClick={()=>setRenameId(null)} title="Cancel">✕</button></span>
-            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:0,cursor:"pointer"}} onClick={()=>{if(proj.id==="misc"){setCollapsed(c=>({...c,[proj.id]:!c[proj.id]}));return;}setProjects(prev=>prev.map(p=>p.id===proj.id?{...p,ui:isOpen?"closed":"open"}:p));}}>{proj.name}{proj.dayType&&DAY_EMOJI[proj.dayType]&&<span style={{fontSize:".78rem",marginLeft:5}} title={DAY_NAME[proj.dayType]+" project"}>{DAY_EMOJI[proj.dayType]}</span>}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
+            ?<span style={{flex:1,display:"flex",gap:4,alignItems:"center",marginLeft:4}} onClick={e=>e.stopPropagation()}><input autoFocus style={{...S.input,padding:"4px 8px",fontSize:"16px"}} value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(proj.id);}}/><button style={{...S.btnIcon,width:30}} onClick={()=>saveRename(proj.id)} title="Save name">✓</button><button style={{...S.btnIcon,width:30}} onClick={()=>setRenameId(null)} title="Cancel">✕</button></span>
+            :<span style={{fontWeight:600,fontSize:".9rem",flex:1,color:proj.parked?C.text3:C.text,marginLeft:0,cursor:"pointer"}} onClick={()=>{if(proj.id==="misc"){setCollapsed(c=>({...c,[proj.id]:!c[proj.id]}));return;}setProjects(prev=>prev.map(p=>p.id===proj.id?{...p,ui:isOpen?"closed":"open"}:p));}}>{proj.name}{isOpen&&!proj.completed&&<button onClick={e=>{e.stopPropagation();setRenameId(proj.id);setRenameVal(proj.name);}} style={{background:"none",border:"none",cursor:"pointer",fontSize:".78rem",marginLeft:6,padding:"0 4px",verticalAlign:"middle"}} title="Rename project">✏️</button>}</span>}
           {proj.completed?<span style={{fontSize:".75rem",color:C.pc,fontWeight:600}}>Completed {proj.completedOn}</span>:<span style={{fontSize:".75rem",color:C.text3}}>{pt.length} task{pt.length!==1?"s":""}</span>}
           {!proj.completed&&<button style={{...S.btnIcon,marginLeft:4,background:C.accent,borderColor:C.accent,color:"#fff",fontSize:".72rem",fontWeight:600,width:"auto",padding:"0 10px",height:26}} onClick={e=>{e.stopPropagation();setEditTask(null);setAddingTo(proj.id);setAddingToToday(false);setShowTask(true);}}>+ Task</button>}
           {proj.id!=="misc"&&!isOpen&&<button style={{...S.btnIcon,marginLeft:2}} onClick={e=>{e.stopPropagation();setConfirm({type:"project",id:proj.id,name:proj.name});}}>🗑</button>}
@@ -747,12 +755,12 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
           {pt.length===0&&!proj.completed&&<div style={{color:C.text3,fontSize:".83rem",padding:"4px 0"}}>No tasks yet.</div>}
           {proj.completed&&pt.length===0&&<div style={{color:C.text3,fontSize:".83rem",padding:"4px 0",fontStyle:"italic"}}>All tasks completed.</div>}
           {LIST_GROUPS.map(pri=>{
-            const priTasks=pt.filter(t=>!t.recur&&!t.doneDate&&listGroup(t)===pri).slice().sort(listSort);
+            const priTasks=pt.filter(t=>!t.doneDate&&(!t.recur||(pri==="W"&&!!t.dueDate))&&listGroup(t)===pri).slice().sort(listSort);
             if(!priTasks.length)return null;
             return <PriorityGroup key={pri} projId={proj.id} pri={pri} priTasks={priTasks} priLabel={priLabel} priCol={priCol} completeTask={completeTask} setEditTask={setEditTask} setShowTask={setShowTask} addToToday={addToToday} removeFromToday={removeFromToday} reorderTasks={reorderTasks} isParked={!!proj.parked} setTasks={setTasks}/>;
           })}
         {isOpen&&(()=>{
-          const recurProjTasks=pt.filter(t=>t.recur&&!t.doneDate).slice().sort((a,b)=>{if(!a.dueDate&&!b.dueDate)return 0;if(!a.dueDate)return 1;if(!b.dueDate)return -1;return a.dueDate<b.dueDate?-1:a.dueDate>b.dueDate?1:0;});
+          const recurProjTasks=pt.filter(t=>t.recur&&!t.doneDate&&!(t.dueDate&&listGroup(t)==="W")).slice().sort((a,b)=>{if(!a.dueDate&&!b.dueDate)return 0;if(!a.dueDate)return 1;if(!b.dueDate)return -1;return a.dueDate<b.dueDate?-1:a.dueDate>b.dueDate?1:0;});
           if(!recurProjTasks.length)return null;
           const recurKey=proj.id+"__recur__";
           const recurOpen=collapsed[recurKey]===true;
@@ -828,14 +836,14 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
           {sortedOnDeck.map((task,ti)=>(
             <div key={task.id} ref={el=>onDeckTouchState.current.rowEls[ti]=el} style={{display:"flex",alignItems:"flex-start",gap:4}}>
               <div ref={el=>onDeckTouchState.current.handleEls[ti]=el} style={{color:C.text3,fontSize:"1rem",paddingTop:4,flexShrink:0,cursor:"grab",userSelect:"none",WebkitUserSelect:"none",padding:"4px 6px 4px 2px"}}>⠿</div>
-              <div style={{flex:1,minWidth:0}}><TaskRow task={task} onComplete={completeTask} onEdit={t=>{setEditTask(t);setShowTask(true);}} onSnooze={id=>setTasks(prev=>prev.map(x=>x.id===id?{...x,snoozedUntil:new Date(Date.now()+10*24*60*60*1000).toISOString().slice(0,10)}:x))}/></div>
+              <div style={{flex:1,minWidth:0}}><TaskRow noReturnTag task={task} onComplete={completeTask} onEdit={t=>{setEditTask(t);setShowTask(true);}} onSnooze={id=>setTasks(prev=>prev.map(x=>x.id===id?{...x,snoozedUntil:new Date(Date.now()+10*24*60*60*1000).toISOString().slice(0,10)}:x))}/></div>
               <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0,marginTop:3}}>
-                <button onClick={()=>addToToday(task.id)} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,color:"#B8941F",border:`1px solid #B8941F`,borderRadius:8,background:C.td2,cursor:"pointer"}}>+ Today</button>
+                <button title={pushedLabel(task)?"Pushed — comes back to Today by itself. Tap to bring it back now.":undefined} onClick={()=>addToToday(task.id)} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,whiteSpace:"nowrap",color:"#B8941F",border:`1px ${pushedLabel(task)?"dashed":"solid"} #B8941F`,borderRadius:8,background:C.td2,cursor:"pointer"}}>{pushedLabel(task)||"+ Today"}</button>
               </div>
             </div>
           ))}
         {(()=>{
-          const availProjects=active.filter(t=>{if(t.today||t.doneDate||t.waiting||t.recur||t.priority!=="A")return false;if(t.projectId==="misc")return false;const proj=projects.find(p=>p.id===t.projectId);if(!proj||proj.parked||proj.completed)return false;if(onDeckTasks.find(x=>x.id===t.id))return false;return true;});if(availProjects.length>0){const apOpen=collapsed.__availProjects__===true;return(<div style={{borderTop:`1px solid ${C.pa}22`,marginTop:4}}><div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",cursor:"pointer",userSelect:"none"}} onClick={()=>setCollapsed(c=>({...c,__availProjects__:!c.__availProjects__}))}><span style={{fontSize:".78rem",color:C.pa,fontWeight:600,flex:1}}>Available — Projects ({availProjects.length})</span><span style={{fontSize:".7rem",color:C.text3,transform:apOpen?"":"rotate(-90deg)",display:"inline-block",transition:"transform .2s"}}>▾</span></div>{apOpen&&<div style={{padding:"2px 10px 8px"}}>{availProjects.sort(capsSort).map(t=>{const proj=projects.find(p=>p.id===t.projectId);return(<div key={t.id} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 0"}}><div style={{flex:1,fontSize:".83rem",color:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>{setEditTask(t);setShowTask(true);}}>{t.title}{proj&&<span style={{fontSize:".72rem",color:C.text3,marginLeft:6}}>{proj.name}</span>}</div><button onClick={()=>addToToday(t.id)} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,color:"#B8941F",border:`1px solid #B8941F`,borderRadius:8,background:C.td2,cursor:"pointer",flexShrink:0}}>+ Today</button></div>);})}</div>}</div>);}return null;})()}
+          const availProjects=active.filter(t=>{if(t.today||t.doneDate||t.waiting||t.recur||t.priority!=="A")return false;if(t.projectId==="misc")return false;const proj=projects.find(p=>p.id===t.projectId);if(!proj||proj.parked||proj.completed)return false;if(onDeckTasks.find(x=>x.id===t.id))return false;return true;});if(availProjects.length>0){const apOpen=collapsed.__availProjects__!==true;return(<div style={{borderTop:`1px solid ${C.pa}22`,marginTop:4}}><div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",cursor:"pointer",userSelect:"none"}} onClick={()=>setCollapsed(c=>({...c,__availProjects__:!c.__availProjects__}))}><span style={{fontSize:".78rem",color:C.pa,fontWeight:600,flex:1}}>Available — Projects ({availProjects.length})</span><span style={{fontSize:".7rem",color:C.text3,transform:apOpen?"":"rotate(-90deg)",display:"inline-block",transition:"transform .2s"}}>▾</span></div>{apOpen&&<div style={{padding:"2px 10px 8px"}}>{availProjects.sort(capsSort).map(t=>{const proj=projects.find(p=>p.id===t.projectId);return(<div key={t.id} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 0"}}><div style={{flex:1,fontSize:".83rem",color:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>{setEditTask(t);setShowTask(true);}}>{t.title}{proj&&<span style={{fontSize:".72rem",color:C.text3,marginLeft:6}}>{proj.name}</span>}</div><button onClick={()=>addToToday(t.id)} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,color:"#B8941F",border:`1px solid #B8941F`,borderRadius:8,background:C.td2,cursor:"pointer",flexShrink:0}}>+ Today</button></div>);})}</div>}</div>);}return null;})()}
         {(()=>{
           const soonNoDates=active.filter(t=>t.priority==="B"&&!t.dueDate&&!t.today&&!t.doneDate&&!t.recur&&!t.waiting&&!projects.find(p=>p.id===t.projectId)?.parked);
           if(!soonNoDates.length)return null;
@@ -1295,12 +1303,12 @@ function buildGeorgeFile(tasks,projects,coachLogs){
   const lastAct=pid=>{let best=null;tasks.forEach(t=>{if(t.projectId!==pid)return;[t.doneDate,t.progressedOn,t.addedDate].forEach(d=>{if(d&&/^\d{4}/.test(d)&&(!best||d>best))best=d;});});return best;};
   return {schemaVersion:2,exportedAt:isoLocal(new Date()),lastCheckIn:days.length?days[days.length-1]:null,
     today:{date:today,dayTypes:kinds(today)},plannedDays:planned,
-    projects:projects.filter(p=>!p.completed).map(p=>({name:p.name,dayType:p.dayType||null,parked:!!p.parked,lastActivity:lastAct(p.id)})),
+    projects:projects.filter(p=>!p.completed).map(p=>({name:p.name,parked:!!p.parked,lastActivity:lastAct(p.id)})),
     fromGeorgeRecent:geoRecentForGeorge(),
     tasks:open.map(t=>({id:t.id,title:t.title,project:(pr(t.projectId)||{name:"Misc Tasks"}).name,when:when[t.priority]||"available",
       dueDate:t.dueDate||null,scheduledDate:t.priority==="S"&&t.schedDate?t.schedDate:null,waiting:!!t.waiting,waitingOn:t.waitingOn||null,
       inProgress:!!t.inProgress,onToday:!!t.today,onDeck:!t.today&&!!(t.onDeck||(effDate(t)&&effDate(t)<=dsPlus(3))),
-      pushCount:t.pushCount||0,lastPushed:t.lastPushed||null,dayType:taskDayType(t,projects)||null,
+      pushCount:t.pushCount||0,lastPushed:t.lastPushed||null,
       recurring:t.recur?{every:recurEvery(t.recur),ifMissed:isManualRecur(t.recur)?"manual":(t.recurMode==="fixed"?"fixed":"flexible"),lastDone:lastDoneOf(t,tasks)}:null,
       notes:t.notes||""}))};
 }
@@ -1337,17 +1345,10 @@ function applyKateDayTags(coachLogs){
   if(changed)daysSave({kateApplied:newApplied.slice(-200)});}
 // Row of kinds on Today
 function DayTypeChips(){const d=useDays();const t=todayDS();const cur=((d.days||{})[t]||{}).types||[];
-  return(<div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:4,marginBottom:12}}>
-    <span style={{fontSize:".72rem",color:C.text3}}>Today:</span>
-    {DAY_TYPES.map(([k,e,n])=>{const on=cur.includes(k);return <button key={k} onClick={()=>setDayTypes(t,on?cur.filter(x=>x!==k):[...cur,k],"you")} style={{padding:"3px 6px",borderRadius:14,border:`1px solid ${on?C.accent:C.border}`,background:on?C.accent:C.card,color:on?"#fff":C.text2,fontSize:".7rem",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{e} {n}</button>;})}
+  return(<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:3,marginBottom:12}}>
+        {DAY_TYPES.map(([k,e,n])=>{const on=cur.includes(k);return <button key={k} onClick={()=>setDayTypes(t,on?cur.filter(x=>x!==k):[...cur,k],"you")} style={{padding:"3px 5px",borderRadius:14,border:`1px solid ${on?C.accent:C.border}`,background:on?C.accent:C.card,color:on?"#fff":C.text2,fontSize:".7rem",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{e} {n}</button>;})}
   </div>);}
-const taskDayType=(t,projects)=>t.dayType||((projects||[]).find(p=>p.id===t.projectId)||{}).dayType||"";
-// Kate sorts untagged Misc tasks into kinds of day (one short call for up to 40 tasks)
-async function kateTagTasks(list){const apiKey=getApiKey();if(!apiKey||!list.length)return null;
-  try{const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true","x-api-key":apiKey},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,system:"Sort each to-do item into the kind of day it suits: tech (computer/phone/app/online admin work), chore (housework, home or yard upkeep), gym (exercise, physical therapy, fitness), errands (going out: shopping, pickups, drop-offs, appointments around town), or none. Reply with JSON only: {\"<id>\":\"tech|chore|gym|errands|none\", ...}",
-      messages:[{role:"user",content:JSON.stringify(list.map(t=>({id:t.id,title:t.title,notes:(t.notes||"").slice(0,80)})))}]})});
-    if(!r.ok)return null;const j=await r.json();const txt=(j.content||[]).map(c=>c.text||"").join("");const m=txt.match(/\{[\s\S]*\}/);if(!m)return null;return JSON.parse(m[0]);}catch(e){return null;}}
+// (11/06: per-task kinds of day removed — kinds are set per day only)
 
 // ---- From George: inbox messages waiting for Maureen's OK (Session B, 11/03/26) ----
 // Stored on the phone in ONE new item (wh_george_v6): George's picture, notes for Kate, what was decided, and a copy of the waiting messages.
@@ -1662,15 +1663,17 @@ function App(){
   // Trivial was retired (10/31/26): convert old trivial tasks once into normal tasks (completed ones dated when finished, else when added)
   useEffect(()=>{if(!loaded)return;setTasks(prev=>prev.some(t=>t.trivial||t.doneDate==="trivial")?prev.map(t=>{if(!t.trivial&&t.doneDate!=="trivial")return t;const n={...t};delete n.trivial;if(n.doneDate==="trivial")n.doneDate=n.completedOn||n.addedDate||todayDS();return n;}):prev);},[loaded]);
   useEffect(()=>{if(!loaded)return;const today=todayDS();const threeDays=new Date();threeDays.setDate(threeDays.getDate()+3);const threeDaysStr=toDS(threeDays.getFullYear(),threeDays.getMonth(),threeDays.getDate());setTasks(prev=>{let changed=false;const updated=prev.map(t=>{// Auto-manage recurring task availability
-if(t.recur&&!t.doneDate&&t.recurMode==="fixed"&&t.dueDate&&t.dueDate<today&&!isManualRecur(t.recur)){let n=t.dueDate,g=0;while(n<today&&g++<1000)n=addInterval(n,t.recur);changed=true;t={...t,dueDate:n,today:undefined,calculatedDate:true};}
-if(t.recur&&!t.doneDate){if(t.dueDate&&t.dueDate<=threeDaysStr&&t.priority!=="A"){changed=true;return{...t,priority:"A"};}if((!t.dueDate||t.dueDate>threeDaysStr)&&t.priority!=="B"){changed=true;return{...t,priority:"B"};}}return t;});const updated2=updated.map(t=>{if((t.dueDate===today||schedOf(t)===today)&&!t.today&&!t.doneDate){changed=true;return{...t,today:true};}if(t.inProgress&&!t.doneDate&&!t.today&&t.progressedOn===today){changed=true;return{...t,today:true};}if(t.completedOn&&t.completedOn!==today){changed=true;return{...t,today:undefined,completedOn:undefined,progressedOn:undefined};}// Waiting tasks due within 3 days resurface on On Deck
+if(t.recur&&!t.doneDate&&t.recurMode==="fixed"&&t.dueDate&&t.dueDate<today&&!isManualRecur(t.recur)){let n=t.dueDate,prevD=t.dueDate,g=0;while(n<today&&g++<1000){prevD=n;n=addInterval(n,t.recur);}changed=true;t={...t,dueDate:n,today:undefined,calculatedDate:true,missedOn:prevD,autoTodayOn:undefined};}
+if(t.recur&&!t.doneDate){if(t.dueDate&&t.dueDate<=threeDaysStr&&t.priority!=="A"){changed=true;return{...t,priority:"A"};}if((!t.dueDate||t.dueDate>threeDaysStr)&&t.priority!=="B"){changed=true;return{...t,priority:"B"};}}return t;});const updated2=updated.map(t=>{/* due/scheduled-today → Today is now handled by the Today rules below (11/07), which also skip Waiting and parked projects and respect pushes */if(t.inProgress&&!t.doneDate&&!t.today&&t.progressedOn===today){changed=true;return{...t,today:true};}if(t.completedOn&&t.completedOn!==today){changed=true;return{...t,today:undefined,completedOn:undefined,progressedOn:undefined};}// Waiting tasks due within 3 days resurface on On Deck
 if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){changed=true;return{...t,onDeck:true};}return t;});return changed?updated2:prev;});},[loaded,dayKey]);
 
   // Today rules (run on load, at day change, and whenever tasks/projects change):
   //  - tasks sent back with ↩ return to Today on their return date
   //  - ALL CAPS tasks go to Today unless waiting, scheduled for later, or in a parked/completed project
+  //  - 11/07: anything due or scheduled today, or overdue, goes to Today once a day (push it and it stays off until tomorrow)
   useEffect(()=>{if(!loaded)return;const today=todayDS();setTasks(prev=>{let changed=false;const out=prev.map(t=>{if(t.doneDate)return t;
     if(t.returnOn&&t.returnOn<=today&&!t.today){changed=true;if(t.waiting&&!t.onDeck)return{...t,returnOn:undefined};return{...t,today:true,returnOn:undefined};}
+    {const ed=effDate(t);if(ed&&ed<=today&&!t.today&&!t.returnOn&&!t.waiting&&!t.needsNextDate&&t.autoTodayOn!==today){const pr=projects.find(p=>p.id===t.projectId);if(!(pr&&(pr.parked||pr.completed))){changed=true;return{...t,today:true,autoTodayOn:today};}}}
     if(isAllCaps(t)&&!t.today&&!t.returnOn&&!t.waiting&&!t.needsNextDate){const pr=projects.find(p=>p.id===t.projectId);if(pr&&(pr.parked||pr.completed))return t;if(t.priority==="S"&&t.schedDate&&t.schedDate>today)return t;if(t.recur&&t.dueDate&&t.dueDate>today)return t;changed=true;return{...t,today:true};}
     return t;});return changed?out:prev;});},[loaded,dayKey,tasks,projects]);
   // Misc is the permanent catch-all: if it was ever parked or completed, switch it back to active
@@ -1708,12 +1711,6 @@ if(t.waiting&&!t.doneDate&&t.dueDate&&t.dueDate<=threeDaysStr&&!t.onDeck){change
   const doUndo=()=>{const u=undoRef.current;const step=u.hist.pop();if(!step)return;u.undoing=true;u.lastAt=0;setTasks(step.before.tasks);setProjects(step.before.projects);setUndoN(u.hist.length);};
   // Kinds of day: apply Kate's [[DAY:]] lines; default kinds for MoGo! and House Maintenance; Kate sorts untagged Misc tasks
   useEffect(()=>{if(loaded)applyKateDayTags(coachLogs);},[loaded,coachLogs]);
-  useEffect(()=>{if(!loaded)return;setProjects(prev=>prev.some(p=>p.dayType===undefined&&(/mogo/i.test(p.name)||/house maint/i.test(p.name)))?prev.map(p=>p.dayType!==undefined?p:/mogo/i.test(p.name)?{...p,dayType:"tech"}:/house maint/i.test(p.name)?{...p,dayType:"chore"}:p):prev);},[loaded,projects]);
-  const tagTried=useRef(new Set());
-  useEffect(()=>{if(!loaded||!getApiKey())return;const t=setTimeout(async()=>{
-    const todo=tasks.filter(x=>x.projectId==="misc"&&!x.doneDate&&x.dayType===undefined&&!tagTried.current.has(x.id)).slice(0,40);if(!todo.length)return;
-    todo.forEach(x=>tagTried.current.add(x.id));const res=await kateTagTasks(todo);if(!res)return;
-    undoRef.current.skip=true;setTasks(prev=>prev.map(x=>{const v=res[x.id];if(x.dayType!==undefined||!v)return x;return {...x,dayType:["tech","chore","gym","errands"].includes(v)?v:""};}));},5000);return()=>clearTimeout(t);},[loaded,tasks]);
   // Missing moods: for past days (last 30) where you talked with Kate but didn't pick a mood, Kate guesses one
   const guessTried=useRef(new Set());
   useEffect(()=>{if(!loaded||!getApiKey())return;let stop=false;const t=setTimeout(async()=>{
