@@ -67,6 +67,10 @@ const dayDiff=(a,b)=>Math.round((new Date(b+"T12:00:00")-new Date(a+"T12:00:00")
 const doneForMissed=(t,doneOn)=>!!(t&&t.recur&&t.recurMode==="fixed"&&t.missedOn&&t.dueDate&&doneOn>=t.missedOn&&doneOn<t.dueDate&&dayDiff(t.missedOn,doneOn)<dayDiff(doneOn,t.dueDate));
 // Record the missed date as done; the task keeps its next date
 const recordMissed=(prev,t,doneOn,extra={})=>[...prev.map(x=>x.id===t.id?{...x,missedOn:undefined,lastDone:doneOn,today:undefined}:x),{...t,...extra,id:uid(),doneDate:doneOn,completedOn:doneOn,today:undefined,missedOn:undefined,dueDate:t.missedOn,autoTodayOn:undefined,pushCount:undefined,lastPushed:undefined}];
+// Sort a list by project (in project order), and tell which rows start a new project
+function byProject(list,projects,within){const pi=id=>{const i=projects.findIndex(p=>p.id===id);return i<0?999:i;};
+  const s=list.slice().sort((a,b)=>pi(a.projectId)-pi(b.projectId)||(within?within(a,b):0));return s.map((t,i)=>({t,first:i===0||s[i-1].projectId!==t.projectId}));}
+const ProjHead=({name})=><div style={{fontSize:".68rem",fontWeight:700,color:C.text2,textTransform:"uppercase",letterSpacing:".04em",padding:"6px 0 1px"}}>{name}</div>;
 const LIST_GROUPS=["W","A","S1","B","S2","C"];
 const listGroup=t=>{const d=effDate(t);if(d&&d<=dsPlus(7))return "W";if(t.priority==="S"){const s=t.schedDate;return (!s||s<=dsPlus(30))?"S1":"S2";}return t.priority==="B"?"B":t.priority==="C"?"C":"A";};
 // Inside a group: ALL CAPS first, then dated within a month (earliest first), then undated, then dated later
@@ -820,12 +824,13 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
         if(t.priority!=="A")return false;
         if(isAllCaps(t))return true;
         if(t.projectId==="misc")return true;
-        const projATasks=active.filter(x=>x.projectId===t.projectId&&x.priority==="A"&&!x.today&&!x.waiting);
-        return projATasks[0]?.id===t.id;
+        return false; // 11/10: project Available tasks are all listed together under "Available — Projects"
       });
       const sortedOnDeck=(()=>{const base=onDeckTasks.slice().sort((a,b)=>{const cc=capsSort(a,b);if(cc!==0)return cc;const ad=effDate(a),bd=effDate(b);const aHas=!!ad,bHas=!!bd;if(aHas&&!bHas)return-1;if(!aHas&&bHas)return 1;if(aHas&&bHas&&ad!==bd)return ad<bd?-1:1;return 0;});if(!onDeckOrder)return base;const ordered=onDeckOrder.map(id=>base.find(t=>t.id===id)).filter(Boolean);const rest=base.filter(t=>!onDeckOrder.includes(t.id));return[...ordered,...rest];})();
       onDeckTouchState.current.tasks=sortedOnDeck;
-      return onDeckTasks.length>0&&(
+      // show the card if anything is on it: main list, project Available tasks, or Soon-without-date
+      const odHasMore=active.some(t=>!t.today&&!t.doneDate&&!t.waiting&&!t.recur&&(t.priority==="A"||(t.priority==="B"&&!t.dueDate))&&t.projectId!=="misc"&&(()=>{const pr=projects.find(p=>p.id===t.projectId);return pr&&!pr.parked&&!pr.completed;})())||active.some(t=>t.priority==="B"&&!t.dueDate&&!t.today&&!t.doneDate&&!t.recur&&!t.waiting&&!projects.find(p=>p.id===t.projectId)?.parked);
+      return (onDeckTasks.length>0||odHasMore)&&(
       <div style={{background:C.card,border:`1.5px solid ${C.pa}22`,borderRadius:12,marginBottom:14,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 14px",background:"#fde8e7",cursor:"pointer",userSelect:"none"}} onClick={()=>setCollapsed(c=>({...c,__onDeck__:!c.__onDeck__}))}>
           <span style={{width:"1.1rem",textAlign:"center",fontSize:"1rem",display:"inline-block"}}>📌</span>
@@ -843,7 +848,7 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
             </div>
           ))}
         {(()=>{
-          const availProjects=active.filter(t=>{if(t.today||t.doneDate||t.waiting||t.recur||t.priority!=="A")return false;if(t.projectId==="misc")return false;const proj=projects.find(p=>p.id===t.projectId);if(!proj||proj.parked||proj.completed)return false;if(onDeckTasks.find(x=>x.id===t.id))return false;return true;});if(availProjects.length>0){const apOpen=collapsed.__availProjects__!==true;return(<div style={{borderTop:`1px solid ${C.pa}22`,marginTop:4}}><div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",cursor:"pointer",userSelect:"none"}} onClick={()=>setCollapsed(c=>({...c,__availProjects__:!c.__availProjects__}))}><span style={{fontSize:".78rem",color:C.pa,fontWeight:600,flex:1}}>Available — Projects ({availProjects.length})</span><span style={{fontSize:".7rem",color:C.text3,transform:apOpen?"":"rotate(-90deg)",display:"inline-block",transition:"transform .2s"}}>▾</span></div>{apOpen&&<div style={{padding:"2px 10px 8px"}}>{availProjects.sort(capsSort).map(t=>{const proj=projects.find(p=>p.id===t.projectId);return(<div key={t.id} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 0"}}><div style={{flex:1,fontSize:".83rem",color:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>{setEditTask(t);setShowTask(true);}}>{t.title}{proj&&<span style={{fontSize:".72rem",color:C.text3,marginLeft:6}}>{proj.name}</span>}</div><button onClick={()=>addToToday(t.id)} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,color:"#B8941F",border:`1px solid #B8941F`,borderRadius:8,background:C.td2,cursor:"pointer",flexShrink:0}}>+ Today</button></div>);})}</div>}</div>);}return null;})()}
+          const availProjects=active.filter(t=>{if(t.today||t.doneDate||t.waiting||t.recur||t.priority!=="A")return false;if(t.projectId==="misc")return false;const proj=projects.find(p=>p.id===t.projectId);if(!proj||proj.parked||proj.completed)return false;if(onDeckTasks.find(x=>x.id===t.id))return false;return true;});if(availProjects.length>0){const apOpen=collapsed.__availProjects__!==true;return(<div style={{borderTop:`1px solid ${C.pa}22`,marginTop:4}}><div style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",cursor:"pointer",userSelect:"none"}} onClick={()=>setCollapsed(c=>({...c,__availProjects__:!c.__availProjects__}))}><span style={{fontSize:".78rem",color:C.pa,fontWeight:600,flex:1}}>Available — Projects ({availProjects.length})</span><span style={{fontSize:".7rem",color:C.text3,transform:apOpen?"":"rotate(-90deg)",display:"inline-block",transition:"transform .2s"}}>▾</span></div>{apOpen&&<div style={{padding:"2px 10px 8px"}}>{byProject(availProjects,projects,listSort).map(({t,first})=>{const proj=projects.find(p=>p.id===t.projectId);return(<React.Fragment key={t.id}>{first&&<ProjHead name={proj?proj.name:""}/>}<div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 0 3px 8px"}}><div style={{flex:1,fontSize:".83rem",color:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} onClick={()=>{setEditTask(t);setShowTask(true);}}>{t.title}</div><button onClick={()=>addToToday(t.id)} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,color:"#B8941F",border:`1px solid #B8941F`,borderRadius:8,background:C.td2,cursor:"pointer",flexShrink:0}}>+ Today</button></div></React.Fragment>);})}</div>}</div>);}return null;})()}
         {(()=>{
           const soonNoDates=active.filter(t=>t.priority==="B"&&!t.dueDate&&!t.today&&!t.doneDate&&!t.recur&&!t.waiting&&!projects.find(p=>p.id===t.projectId)?.parked);
           if(!soonNoDates.length)return null;
@@ -854,10 +859,10 @@ setTasks(prev=>prev.map(x=>x.id===id?{...x,progressedOn:undefined,completedOn:un
               <span style={{fontSize:".7rem",color:C.text3,transform:soonOpen?"":"rotate(-90deg)",display:"inline-block",transition:"transform .2s"}}>▾</span>
             </div>
             {soonOpen&&<div style={{padding:"2px 10px 8px"}}>
-              {soonNoDates.map(t=>{const proj=projects.find(p=>p.id===t.projectId);return(<div key={t.id} style={{display:"flex",alignItems:"center",gap:4,padding:"3px 0"}}>
-                <div style={{flex:1,fontSize:".83rem",color:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}} onClick={()=>{setEditTask(t);setShowTask(true);}}>{t.title}{proj&&proj.id!=="misc"&&<span style={{fontSize:".72rem",color:C.text3,marginLeft:6}}>{proj.name}</span>}</div>
+              {byProject(soonNoDates,projects,capsSort).map(({t,first})=>{const proj=projects.find(p=>p.id===t.projectId);return(<React.Fragment key={t.id}>{first&&<ProjHead name={proj?proj.name:"Misc Tasks"}/>}<div style={{display:"flex",alignItems:"center",gap:4,padding:"3px 0 3px 8px"}}>
+                <div style={{flex:1,minWidth:0,fontSize:".83rem",color:C.text,cursor:"pointer",textDecoration:"underline dotted",textUnderlineOffset:2}} onClick={()=>{setEditTask(t);setShowTask(true);}}>{t.title}</div>
                 <button onClick={()=>setTasks(prev=>prev.map(x=>x.id===t.id?{...x,priority:"A"}:x))} style={{padding:"2px 8px",fontSize:".7rem",fontWeight:600,color:C.pa,border:`1px solid ${C.pa}`,borderRadius:8,background:"#fde8e7",cursor:"pointer",flexShrink:0}}>→ Avail</button>
-              </div>);})}
+              </div></React.Fragment>);})}
             </div>}
           </div>);
         })()}
